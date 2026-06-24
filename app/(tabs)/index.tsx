@@ -1,98 +1,128 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { Image, ScrollView, StyleSheet, Text, View } from "react-native";
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+const posts = [
+  {
+    id: 1,
+    user: "james",
+    title: "오늘 내 가방",
+    memo: "노트북, 충전기, 에어팟, 지갑",
+    image: "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=900",
+    likes: 24,
+  },
+  {
+    id: 2,
+    user: "minsu",
+    title: "카페 공부템",
+    memo: "아이패드랑 필기구 챙김",
+    image: "https://images.unsplash.com/photo-1491336477066-31156b5e4f35?w=900",
+    likes: 13,
+  },
+  {
+    id: 3,
+    user: "yuna",
+    title: "운동 가방",
+    memo: "운동복, 물병, 수건",
+    image: "https://images.unsplash.com/photo-1556906781-9a412961c28c?w=900",
+    likes: 31,
+  },
+];
 
 export default function HomeScreen() {
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      <Text style={styles.logo}>InMyBag</Text>
+      <Text style={styles.subtitle}>내 가방 속 취향을 공유하는 SNS</Text>
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+      {posts.map((post) => (
+        <View key={post.id} style={styles.card}>
+          <View style={styles.header}>
+            <View style={styles.profileCircle}>
+              <Text style={styles.profileText}>{post.user[0].toUpperCase()}</Text>
+            </View>
+            <Text style={styles.userName}>@{post.user}</Text>
+          </View>
+
+          <Image source={{ uri: post.image }} style={styles.image} />
+
+          <View style={styles.content}>
+            <Text style={styles.title}>{post.title}</Text>
+            <Text style={styles.memo}>{post.memo}</Text>
+            <Text style={styles.likes}>♡ {post.likes} likes</Text>
+          </View>
+        </View>
+      ))}
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  container: {
+    flex: 1,
+    backgroundColor: "#F7F3EA",
+    padding: 18,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  logo: {
+    fontSize: 36,
+    fontWeight: "900",
+    color: "#2F261D",
+    marginTop: 24,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  subtitle: {
+    fontSize: 15,
+    color: "#7A6A58",
+    marginTop: 4,
+    marginBottom: 22,
+  },
+  card: {
+    backgroundColor: "white",
+    borderRadius: 24,
+    marginBottom: 22,
+    overflow: "hidden",
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 14,
+  },
+  profileCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#2F261D",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 10,
+  },
+  profileText: {
+    color: "white",
+    fontWeight: "800",
+  },
+  userName: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#2F261D",
+  },
+  image: {
+    width: "100%",
+    height: 280,
+  },
+  content: {
+    padding: 15,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#2F261D",
+  },
+  memo: {
+    fontSize: 15,
+    color: "#5D5144",
+    marginTop: 6,
+  },
+  likes: {
+    fontSize: 14,
+    color: "#A36A3D",
+    fontWeight: "700",
+    marginTop: 12,
   },
 });

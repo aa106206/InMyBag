@@ -28,6 +28,13 @@
     "plugins": [
       "expo-router",
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "InMyBag가 Bag Stack에 사진을 추가하려면 앨범 접근 권한이 필요합니다.",
+          "cameraPermission": "InMyBag가 Bag Stack에서 사진을 찍으려면 카메라 접근 권한이 필요합니다."
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-icon.png",

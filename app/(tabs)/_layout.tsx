@@ -24,6 +24,15 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="bagstack"
+        options={{
+          title: 'Bag Stack',
+          tabBarIcon: ({ color }) => (
+            <IconSymbol size={28} name="square.stack.3d.up.fill" color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="explore"
         options={{
           title: 'Explore',
