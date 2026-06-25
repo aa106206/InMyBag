@@ -12,6 +12,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { Brand } from "@/constants/theme";
+
 const CARD_SIZE = 92;
 const H_PADDING = 16;
 const WALL_THICKNESS = 60;
@@ -195,7 +197,21 @@ export default function BagStackScreen() {
 
   return (
     <View style={styles.screen}>
+      <View style={[styles.topBar, { paddingTop: insets.top + 12 }]}>
+        <Image source={require("@/assets/images/InMyBag.png")} style={styles.logoImage} />
+        <View style={styles.topCopy}>
+          <Text style={styles.topTitle}>Bag Stack</Text>
+          <Text style={styles.topSubtitle}>사진을 찍으면 가방 속 기록이 차곡차곡 쌓여요</Text>
+        </View>
+      </View>
+
       <View style={styles.canvas} onLayout={onCanvasLayout}>
+        {photos.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyTitle}>첫 번째 물건을 담아보세요</Text>
+            <Text style={styles.emptyText}>아래 버튼으로 사진을 찍으면 이 공간에 카드가 떨어집니다.</Text>
+          </View>
+        ) : null}
         {photos.map((photo) => (
           <PhysicsPhoto key={photo.id} photo={photo} frame={frame} />
         ))}
@@ -207,11 +223,11 @@ export default function BagStackScreen() {
           { paddingBottom: Math.max(insets.bottom, 12) },
         ]}
       >
-        <Pressable style={styles.button} onPress={pickFromCamera}>
+        <Pressable style={[styles.button, styles.primaryButton]} onPress={pickFromCamera}>
           <Text style={styles.buttonText}>사진 찍기</Text>
         </Pressable>
-        <Pressable style={styles.button} onPress={resetStack}>
-          <Text style={styles.buttonText}>리셋</Text>
+        <Pressable style={[styles.button, styles.secondaryButton]} onPress={resetStack}>
+          <Text style={styles.secondaryButtonText}>리셋</Text>
         </Pressable>
       </View>
     </View>
@@ -221,18 +237,74 @@ export default function BagStackScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#000000",
+    backgroundColor: Brand.secondary,
+  },
+  topBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: H_PADDING,
+    paddingBottom: 14,
+    backgroundColor: Brand.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: Brand.border,
+  },
+  logoImage: {
+    width: 46,
+    height: 46,
+    borderRadius: 12,
+  },
+  topCopy: {
+    flex: 1,
+  },
+  topTitle: {
+    color: Brand.primary,
+    fontSize: 22,
+    fontWeight: "900",
+  },
+  topSubtitle: {
+    color: Brand.muted,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 2,
   },
   canvas: {
     flex: 1,
-    backgroundColor: "#000000",
+    backgroundColor: Brand.secondary,
     overflow: "hidden",
+  },
+  emptyState: {
+    position: "absolute",
+    left: 24,
+    right: 24,
+    top: 36,
+    alignItems: "center",
+    padding: 18,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: "#B9C7D8",
+    backgroundColor: "rgba(255,255,255,0.64)",
+  },
+  emptyTitle: {
+    color: Brand.text,
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  emptyText: {
+    color: Brand.muted,
+    textAlign: "center",
+    marginTop: 8,
+    lineHeight: 20,
   },
   card: {
     position: "absolute",
     width: CARD_SIZE,
     height: CARD_SIZE,
     overflow: "hidden",
+    borderRadius: 8,
+    borderWidth: 3,
+    borderColor: Brand.surface,
   },
   cardImage: {
     width: "100%",
@@ -243,17 +315,32 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: H_PADDING,
     paddingTop: 12,
-    backgroundColor: "#000000",
+    backgroundColor: Brand.surface,
+    borderTopWidth: 1,
+    borderTopColor: Brand.border,
   },
   button: {
     flex: 1,
     paddingVertical: 14,
     alignItems: "center",
+    borderRadius: 8,
+  },
+  primaryButton: {
+    backgroundColor: Brand.primary,
+  },
+  secondaryButton: {
+    backgroundColor: Brand.secondary,
     borderWidth: 1,
-    borderColor: "#333333",
+    borderColor: Brand.border,
   },
   buttonText: {
     color: "#FFFFFF",
     fontSize: 15,
+    fontWeight: "800",
+  },
+  secondaryButtonText: {
+    color: Brand.primary,
+    fontSize: 15,
+    fontWeight: "800",
   },
 });
