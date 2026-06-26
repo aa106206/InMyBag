@@ -14,6 +14,8 @@ type IconSymbolName = keyof typeof MAPPING;
  * - see SF Symbols in the [SF Symbols](https://developer.apple.com/sf-symbols/) app.
  */
 const MAPPING = {
+  'chart.bar.fill': 'bar-chart',
+  'gearshape.fill': 'settings',
   'house.fill': 'home',
   'paperplane.fill': 'send',
   'square.stack.3d.up.fill': 'layers',
