@@ -805,7 +805,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   topTitle: {
-    color: Brand.primary,
+    color: Brand.text,
     fontSize: 22,
     fontWeight: "900",
   },
@@ -853,8 +853,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderStyle: "dashed",
-    borderColor: "#B9C7D8",
-    backgroundColor: "rgba(255,255,255,0.64)",
+    borderColor: Brand.primary,
+    backgroundColor: "rgba(255,255,255,0.74)",
   },
   emptyTitle: {
     color: Brand.text,
@@ -877,7 +877,7 @@ const styles = StyleSheet.create({
     backgroundColor: Brand.primary,
   },
   segmentingText: {
-    color: "#FFFFFF",
+    color: Brand.text,
     fontSize: 13,
     fontWeight: "900",
   },
@@ -970,12 +970,12 @@ const styles = StyleSheet.create({
     borderColor: Brand.border,
   },
   buttonText: {
-    color: "#FFFFFF",
+    color: Brand.text,
     fontSize: 15,
     fontWeight: "800",
   },
   secondaryButtonText: {
-    color: Brand.primary,
+    color: Brand.text,
     fontSize: 15,
     fontWeight: "800",
   },

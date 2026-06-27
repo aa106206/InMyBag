@@ -256,30 +256,95 @@ function clampPhotoPosition(
   };
 }
 
+function clampBodyInsideWorld(body: Matter.Body, worldSize: WorldSize, photoSize: number) {
+  const nextPosition = clampPhotoPosition(body.position, worldSize, photoSize);
+  const didClamp =
+    nextPosition.x !== body.position.x || nextPosition.y !== body.position.y;
+
+  if (didClamp) {
+    Body.setPosition(body, nextPosition);
+    Body.setVelocity(body, { x: 0, y: 0 });
+  }
+}
+
 function PhysicsPhoto({
   photo,
   frame,
   worldSize,
+  onPhotoDragChange,
 }: {
   photo: PhysicsPhotoItem;
   frame: number;
   worldSize: WorldSize;
+  onPhotoDragChange: (isDragging: boolean) => void;
 }) {
   void frame;
 
   const bodyRef = useRef(photo.body);
   const dragStartRef = useRef({ x: 0, y: 0 });
   const worldSizeRef = useRef(worldSize);
+  const isDraggingRef = useRef(false);
+  const dragFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onPhotoDragChangeRef = useRef(onPhotoDragChange);
   bodyRef.current = photo.body;
   worldSizeRef.current = worldSize;
+  onPhotoDragChangeRef.current = onPhotoDragChange;
+
+  const clearDragFallback = () => {
+    if (dragFallbackRef.current) {
+      clearTimeout(dragFallbackRef.current);
+      dragFallbackRef.current = null;
+    }
+  };
+
+  const endPhotoDrag = (velocity = { x: 0, y: 0 }) => {
+    const body = bodyRef.current;
+    clearDragFallback();
+    isDraggingRef.current = false;
+    onPhotoDragChangeRef.current(false);
+    Body.setPosition(
+      body,
+      clampPhotoPosition(body.position, worldSizeRef.current, photo.size),
+    );
+    Body.setStatic(body, false);
+    Body.setVelocity(body, velocity);
+  };
+
+  const scheduleDragFallback = () => {
+    clearDragFallback();
+    dragFallbackRef.current = setTimeout(() => {
+      if (isDraggingRef.current) {
+        endPhotoDrag();
+      }
+    }, 1200);
+  };
+
+  useEffect(
+    () => () => {
+      clearDragFallback();
+      if (isDraggingRef.current) {
+        const body = bodyRef.current;
+        isDraggingRef.current = false;
+        onPhotoDragChangeRef.current(false);
+        Body.setStatic(body, false);
+      }
+    },
+    [],
+  );
 
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponderCapture: () => true,
       onMoveShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponderCapture: () => true,
       onPanResponderTerminationRequest: () => false,
+      onShouldBlockNativeResponder: () => true,
       onPanResponderGrant: () => {
         const body = bodyRef.current;
+        isDraggingRef.current = true;
+        onPhotoDragChangeRef.current(true);
+        scheduleDragFallback();
         dragStartRef.current = { x: body.position.x, y: body.position.y };
         Body.setStatic(body, true);
         Body.setVelocity(body, { x: 0, y: 0 });
@@ -287,6 +352,7 @@ function PhysicsPhoto({
       },
       onPanResponderMove: (_, gestureState) => {
         const body = bodyRef.current;
+        scheduleDragFallback();
         Body.setPosition(
           body,
           clampPhotoPosition(
@@ -300,25 +366,13 @@ function PhysicsPhoto({
         );
       },
       onPanResponderRelease: (_, gestureState) => {
-        const body = bodyRef.current;
-        Body.setPosition(
-          body,
-          clampPhotoPosition(body.position, worldSizeRef.current, photo.size),
-        );
-        Body.setStatic(body, false);
-        Body.setVelocity(body, {
+        endPhotoDrag({
           x: gestureState.vx * 4,
           y: gestureState.vy * 4,
         });
       },
       onPanResponderTerminate: () => {
-        const body = bodyRef.current;
-        Body.setPosition(
-          body,
-          clampPhotoPosition(body.position, worldSizeRef.current, photo.size),
-        );
-        Body.setStatic(body, false);
-        Body.setVelocity(body, { x: 0, y: 0 });
+        endPhotoDrag();
       },
     }),
   ).current;
@@ -348,10 +402,12 @@ function FriendBagPage({
   bag,
   width,
   topInset,
+  onPhotoDragChange,
 }: {
   bag: FriendBag;
   width: number;
   topInset: number;
+  onPhotoDragChange: (isDragging: boolean) => void;
 }) {
   const engineRef = useRef(Engine.create({ gravity: { x: 0, y: 0, scale: 0.002 } }));
   const wallsRef = useRef<Matter.Body[]>([]);
@@ -388,6 +444,7 @@ function FriendBagPage({
           },
         );
 
+        (body as Matter.Body & { photoSize: number }).photoSize = photo.size;
         Body.setAngle(body, photo.angle);
         World.add(world, body);
 
@@ -423,6 +480,12 @@ function FriendBagPage({
       const delta = Math.min(time - lastTime, FIXED_TIMESTEP * 2);
       lastTime = time;
       Engine.update(engine, delta || FIXED_TIMESTEP);
+      engine.world.bodies.forEach((body) => {
+        if (body.label === 'photo') {
+          const photoSize = (body as Matter.Body & { photoSize?: number }).photoSize ?? 0;
+          clampBodyInsideWorld(body, worldSizeRef.current, photoSize);
+        }
+      });
       setFrame((value) => (value + 1) % 1000000);
       frameId = requestAnimationFrame(tick);
     };
@@ -493,6 +556,7 @@ function FriendBagPage({
             photo={photo}
             frame={frame}
             worldSize={worldSizeRef.current}
+            onPhotoDragChange={onPhotoDragChange}
           />
         ))}
       </View>
@@ -503,6 +567,7 @@ function FriendBagPage({
 export default function HomeScreen() {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const [isPhotoDragging, setIsPhotoDragging] = useState(false);
 
   return (
     <View style={styles.container}>
@@ -511,6 +576,7 @@ export default function HomeScreen() {
         horizontal
         pagingEnabled
         bounces={false}
+        scrollEnabled={!isPhotoDragging}
         contentInsetAdjustmentBehavior="automatic"
         keyExtractor={(item) => item.id}
         showsHorizontalScrollIndicator={false}
@@ -519,6 +585,7 @@ export default function HomeScreen() {
             bag={item}
             width={width}
             topInset={insets.top}
+            onPhotoDragChange={setIsPhotoDragging}
           />
         )}
       />
@@ -545,9 +612,9 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: Brand.surface,
     borderWidth: 2,
-    borderColor: '#FFFFFF',
+    borderColor: Brand.surface,
   },
   userName: {
     color: Brand.text,
@@ -562,7 +629,7 @@ const styles = StyleSheet.create({
   photoCard: {
     position: 'absolute',
     overflow: 'hidden',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: Brand.surface,
   },
   photo: {
     width: '100%',

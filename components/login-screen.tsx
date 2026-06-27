@@ -128,7 +128,7 @@ export function LoginScreen({ onSignIn, onSignUp }: LoginScreenProps) {
             value={email}
             onChangeText={setEmail}
             placeholder="이메일"
-            placeholderTextColor="rgba(255,255,255,0.64)"
+            placeholderTextColor={Brand.muted}
             keyboardType="email-address"
             textContentType="emailAddress"
             autoCapitalize="none"
@@ -139,7 +139,7 @@ export function LoginScreen({ onSignIn, onSignUp }: LoginScreenProps) {
             value={password}
             onChangeText={setPassword}
             placeholder="비밀번호"
-            placeholderTextColor="rgba(255,255,255,0.64)"
+            placeholderTextColor={Brand.muted}
             secureTextEntry
             textContentType={isSignUp ? 'newPassword' : 'password'}
             style={styles.input}
@@ -164,7 +164,7 @@ export function LoginScreen({ onSignIn, onSignUp }: LoginScreenProps) {
             disabled={!canSubmit || isSubmitting}
           >
             {isSubmitting ? (
-              <ActivityIndicator color="#FFFFFF" />
+              <ActivityIndicator color={Brand.secondary} />
             ) : (
               <Text style={styles.loginText}>{isSignUp ? '회원가입' : '로그인'}</Text>
             )}
@@ -187,7 +187,7 @@ export function LoginScreen({ onSignIn, onSignUp }: LoginScreenProps) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: Brand.primary,
+    backgroundColor: Brand.secondary,
   },
   content: {
     flex: 1,
@@ -203,10 +203,12 @@ const styles = StyleSheet.create({
     width: 86,
     height: 86,
     borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.22)',
+    backgroundColor: 'rgba(255,255,255,0.46)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.7)',
   },
   brandName: {
-    color: '#FFFFFF',
+    color: Brand.text,
     fontSize: 40,
     fontWeight: '900',
   },
@@ -217,8 +219,10 @@ const styles = StyleSheet.create({
     height: 52,
     borderRadius: 8,
     paddingHorizontal: 16,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    color: '#FFFFFF',
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.82)',
+    color: Brand.text,
     fontSize: 16,
     fontWeight: '700',
   },
@@ -228,11 +232,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.46)',
-    backgroundColor: 'rgba(255,255,255,0.16)',
+    borderColor: Brand.text,
+    backgroundColor: Brand.text,
   },
   loginText: {
-    color: '#FFFFFF',
+    color: Brand.secondary,
     fontSize: 16,
     fontWeight: '900',
   },
@@ -243,15 +247,15 @@ const styles = StyleSheet.create({
     opacity: 0.52,
   },
   noticeText: {
-    color: '#D6FADF',
+    color: '#166534',
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '800',
     lineHeight: 18,
   },
   errorText: {
-    color: '#FFD9D6',
+    color: '#B42318',
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '800',
     lineHeight: 18,
   },
   footer: {
@@ -260,12 +264,12 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   footerText: {
-    color: 'rgba(255,255,255,0.78)',
+    color: Brand.text,
     fontSize: 14,
     fontWeight: '700',
   },
   signupText: {
-    color: '#FFFFFF',
+    color: Brand.text,
     fontSize: 14,
     fontWeight: '900',
   },
