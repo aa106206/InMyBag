@@ -6,6 +6,7 @@ import {
   Alert,
   Image,
   LayoutChangeEvent,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -146,10 +147,13 @@ export default function BagStackScreen() {
 
     const subscription = Accelerometer.addListener(({ x, y }: { x: number; y: number; z: number }) => {
       const engine = engineRef.current;
+      const isAndroid = Platform.OS === "android";
+      const axisX = isAndroid ? -x : x;
+      const axisY = isAndroid ? y : -y;
 
-      // Map device axes to world gravity and clamp to reasonable limits
-      engine.world.gravity.x = Math.max(-5, Math.min(5, x * GRAVITY_MULT));
-      engine.world.gravity.y = Math.max(-5, Math.min(5, -y * GRAVITY_MULT));
+      // Normalize accelerometer axes across iOS/Android so the physics feel consistent
+      engine.world.gravity.x = Math.max(-5, Math.min(5, axisX * GRAVITY_MULT));
+      engine.world.gravity.y = Math.max(-5, Math.min(5, axisY * GRAVITY_MULT));
       engine.world.gravity.scale = GRAVITY_SCALE;
 
       // Apply a small instantaneous force to photo bodies to make movement more dynamic
@@ -159,8 +163,8 @@ export default function BagStackScreen() {
           const b = bodies[i];
           if (b.label === "photo") {
             Body.applyForce(b, b.position, {
-              x: x * FORCE_FACTOR * (b.mass ?? 1),
-              y: -y * FORCE_FACTOR * (b.mass ?? 1),
+              x: axisX * FORCE_FACTOR * (b.mass ?? 1),
+              y: axisY * FORCE_FACTOR * (b.mass ?? 1),
             });
           }
         }
