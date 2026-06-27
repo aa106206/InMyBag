@@ -1,9 +1,11 @@
-import { Image } from 'expo-image';
-import { useState } from 'react';
+import { Accelerometer } from 'expo-sensors';
+import Matter, { Bodies, Body, Engine, World } from 'matter-js';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   FlatList,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
+  Image,
+  LayoutChangeEvent,
+  Platform,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -13,202 +15,244 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Brand } from '@/constants/theme';
 
-type BagPhoto = {
+const WALL_THICKNESS = 70;
+const FIXED_TIMESTEP = 1000 / 60;
+
+type BagPhotoSeed = {
   id: string;
   uri: string;
-  left: `${number}%`;
-  top: `${number}%`;
+  x: number;
+  y: number;
   size: number;
-  rotate: string;
+  angle: number;
+};
+
+type PhysicsPhotoItem = BagPhotoSeed & {
+  body: Matter.Body;
 };
 
 type FriendBag = {
   id: string;
   user: string;
-  name: string;
-  title: string;
-  mood: string;
-  avatarColor: string;
-  items: string[];
-  photos: BagPhoto[];
+  photos: BagPhotoSeed[];
 };
 
 const mockBags: FriendBag[] = [
   {
     id: 'james',
     user: 'james',
-    name: 'James',
-    title: '카페 작업 가방',
-    mood: '노트북, 커피, 필기구',
-    avatarColor: '#0145F2',
-    items: ['MacBook', 'AirPods', 'Notebook', 'Coffee'],
     photos: [
       {
         id: 'laptop',
-        uri: 'https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=600',
-        left: '11%',
-        top: '10%',
-        size: 128,
-        rotate: '-9deg',
+        uri: 'https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=700',
+        x: 0.28,
+        y: 0.22,
+        size: 122,
+        angle: -0.16,
       },
       {
         id: 'coffee',
-        uri: 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=600',
-        left: '53%',
-        top: '6%',
-        size: 108,
-        rotate: '8deg',
+        uri: 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=700',
+        x: 0.66,
+        y: 0.21,
+        size: 102,
+        angle: 0.12,
       },
       {
         id: 'notebook',
-        uri: 'https://images.unsplash.com/photo-1517842645767-c639042777db?w=600',
-        left: '28%',
-        top: '42%',
-        size: 136,
-        rotate: '5deg',
+        uri: 'https://images.unsplash.com/photo-1517842645767-c639042777db?w=700',
+        x: 0.39,
+        y: 0.58,
+        size: 132,
+        angle: 0.08,
       },
       {
         id: 'earbuds',
-        uri: 'https://images.unsplash.com/photo-1606220588913-b3aacb4d2f46?w=600',
-        left: '60%',
-        top: '51%',
-        size: 104,
-        rotate: '-12deg',
+        uri: 'https://images.unsplash.com/photo-1606220588913-b3aacb4d2f46?w=700',
+        x: 0.69,
+        y: 0.64,
+        size: 96,
+        angle: -0.2,
       },
     ],
   },
   {
     id: 'hyunbin',
     user: 'hyunbin',
-    name: 'Hyunbin',
-    title: '운동 끝나고 바로 외출',
-    mood: '가볍게 챙긴 gym day',
-    avatarColor: '#16A34A',
-    items: ['Sneakers', 'Bottle', 'Towel', 'Protein'],
     photos: [
       {
         id: 'shoes',
-        uri: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=600',
-        left: '10%',
-        top: '13%',
-        size: 132,
-        rotate: '8deg',
+        uri: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=700',
+        x: 0.3,
+        y: 0.28,
+        size: 126,
+        angle: 0.14,
       },
       {
         id: 'bottle',
-        uri: 'https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=600',
-        left: '57%',
-        top: '18%',
-        size: 98,
-        rotate: '-6deg',
+        uri: 'https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=700',
+        x: 0.65,
+        y: 0.29,
+        size: 94,
+        angle: -0.1,
       },
       {
         id: 'watch',
-        uri: 'https://images.unsplash.com/photo-1434493789847-2f02dc6ca35d?w=600',
-        left: '22%',
-        top: '51%',
-        size: 106,
-        rotate: '-11deg',
+        uri: 'https://images.unsplash.com/photo-1434493789847-2f02dc6ca35d?w=700',
+        x: 0.35,
+        y: 0.66,
+        size: 102,
+        angle: -0.18,
       },
       {
         id: 'towel',
-        uri: 'https://images.unsplash.com/photo-1615484477778-ca3b77940c25?w=600',
-        left: '55%',
-        top: '50%',
-        size: 126,
-        rotate: '12deg',
+        uri: 'https://images.unsplash.com/photo-1615484477778-ca3b77940c25?w=700',
+        x: 0.65,
+        y: 0.63,
+        size: 122,
+        angle: 0.18,
       },
     ],
   },
   {
     id: 'dongjun',
     user: 'dongjun',
-    name: 'Dongjun',
-    title: '수업 가는 백팩',
-    mood: '태블릿이랑 책 위주',
-    avatarColor: '#7C3AED',
-    items: ['Tablet', 'Book', 'Pen', 'Wallet'],
     photos: [
       {
         id: 'tablet',
-        uri: 'https://images.unsplash.com/photo-1544244015-0df4b3ffc6b0?w=600',
-        left: '14%',
-        top: '9%',
-        size: 124,
-        rotate: '-5deg',
+        uri: 'https://images.unsplash.com/photo-1544244015-0df4b3ffc6b0?w=700',
+        x: 0.29,
+        y: 0.23,
+        size: 122,
+        angle: -0.09,
       },
       {
         id: 'book',
-        uri: 'https://images.unsplash.com/photo-1519682337058-a94d519337bc?w=600',
-        left: '51%',
-        top: '12%',
-        size: 118,
-        rotate: '10deg',
+        uri: 'https://images.unsplash.com/photo-1519682337058-a94d519337bc?w=700',
+        x: 0.64,
+        y: 0.26,
+        size: 116,
+        angle: 0.17,
       },
       {
         id: 'pen',
-        uri: 'https://images.unsplash.com/photo-1583485088034-697b5bc54ccd?w=600',
-        left: '20%',
-        top: '49%',
-        size: 110,
-        rotate: '11deg',
+        uri: 'https://images.unsplash.com/photo-1583485088034-697b5bc54ccd?w=700',
+        x: 0.34,
+        y: 0.65,
+        size: 102,
+        angle: 0.18,
       },
       {
         id: 'wallet',
-        uri: 'https://images.unsplash.com/photo-1627123424574-724758594e93?w=600',
-        left: '58%',
-        top: '52%',
-        size: 106,
-        rotate: '-8deg',
+        uri: 'https://images.unsplash.com/photo-1627123424574-724758594e93?w=700',
+        x: 0.68,
+        y: 0.63,
+        size: 104,
+        angle: -0.14,
       },
     ],
   },
   {
     id: 'yuna',
     user: 'yuna',
-    name: 'Yuna',
-    title: '주말 산책 가방',
-    mood: '카메라, 선글라스, 작은 지갑',
-    avatarColor: '#EA580C',
-    items: ['Camera', 'Sunglasses', 'Lip balm', 'Keys'],
     photos: [
       {
         id: 'camera',
-        uri: 'https://images.unsplash.com/photo-1516035069371-29a1b244cc32?w=600',
-        left: '13%',
-        top: '12%',
-        size: 126,
-        rotate: '7deg',
+        uri: 'https://images.unsplash.com/photo-1516035069371-29a1b244cc32?w=700',
+        x: 0.3,
+        y: 0.25,
+        size: 124,
+        angle: 0.12,
       },
       {
         id: 'sunglasses',
-        uri: 'https://images.unsplash.com/photo-1511499767150-a48a237f0083?w=600',
-        left: '56%',
-        top: '9%',
-        size: 108,
-        rotate: '-9deg',
+        uri: 'https://images.unsplash.com/photo-1511499767150-a48a237f0083?w=700',
+        x: 0.67,
+        y: 0.24,
+        size: 104,
+        angle: -0.16,
       },
       {
         id: 'keys',
-        uri: 'https://images.unsplash.com/photo-1582139329536-e7284fece509?w=600',
-        left: '18%',
-        top: '51%',
-        size: 102,
-        rotate: '-12deg',
+        uri: 'https://images.unsplash.com/photo-1582139329536-e7284fece509?w=700',
+        x: 0.33,
+        y: 0.64,
+        size: 96,
+        angle: -0.2,
       },
       {
         id: 'pouch',
-        uri: 'https://images.unsplash.com/photo-1590874103328-eac38a683ce7?w=600',
-        left: '54%',
-        top: '48%',
-        size: 132,
-        rotate: '8deg',
+        uri: 'https://images.unsplash.com/photo-1590874103328-eac38a683ce7?w=700',
+        x: 0.65,
+        y: 0.62,
+        size: 126,
+        angle: 0.14,
       },
     ],
   },
 ];
 
-function BagPage({
+function createWalls(width: number, height: number) {
+  const half = WALL_THICKNESS / 2;
+
+  const ground = Bodies.rectangle(
+    width / 2,
+    height + half - 1,
+    width + WALL_THICKNESS * 2,
+    WALL_THICKNESS,
+    { isStatic: true, label: 'wall', friction: 0.9, restitution: 0.12 },
+  );
+
+  const topWall = Bodies.rectangle(
+    width / 2,
+    -half + 1,
+    width + WALL_THICKNESS * 2,
+    WALL_THICKNESS,
+    { isStatic: true, label: 'wall', friction: 0.9, restitution: 0.12 },
+  );
+
+  const leftWall = Bodies.rectangle(-half + 1, height / 2, WALL_THICKNESS, height * 2, {
+    isStatic: true,
+    label: 'wall',
+    friction: 0.4,
+    restitution: 0.1,
+  });
+
+  const rightWall = Bodies.rectangle(width + half - 1, height / 2, WALL_THICKNESS, height * 2, {
+    isStatic: true,
+    label: 'wall',
+    friction: 0.4,
+    restitution: 0.1,
+  });
+
+  return [ground, topWall, leftWall, rightWall];
+}
+
+function PhysicsPhoto({ photo, frame }: { photo: PhysicsPhotoItem; frame: number }) {
+  void frame;
+
+  const { x, y } = photo.body.position;
+
+  return (
+    <View
+      pointerEvents="none"
+      style={[
+        styles.photoCard,
+        {
+          left: x - photo.size / 2,
+          top: y - photo.size / 2,
+          width: photo.size,
+          height: photo.size,
+          transform: [{ rotate: `${photo.body.angle}rad` }],
+        },
+      ]}
+    >
+      <Image source={{ uri: photo.uri }} style={styles.photo} />
+    </View>
+  );
+}
+
+function FriendBagPage({
   bag,
   width,
   topInset,
@@ -219,7 +263,123 @@ function BagPage({
   topInset: number;
   bottomInset: number;
 }) {
-  const canvasHeight = Math.min(460, Math.max(360, width * 1.05));
+  const engineRef = useRef(Engine.create({ gravity: { x: 0, y: 0, scale: 0.002 } }));
+  const wallsRef = useRef<Matter.Body[]>([]);
+  const worldSizeRef = useRef({ width: 0, height: 0 });
+  const [photos, setPhotos] = useState<PhysicsPhotoItem[]>([]);
+  const [frame, setFrame] = useState(0);
+
+  const syncWorld = useCallback(
+    (canvasWidth: number, canvasHeight: number) => {
+      if (canvasWidth <= 0 || canvasHeight <= 0) {
+        return;
+      }
+
+      const world = engineRef.current.world;
+      photos.forEach((photo) => World.remove(world, photo.body));
+      wallsRef.current.forEach((wall) => World.remove(world, wall));
+      wallsRef.current = createWalls(canvasWidth, canvasHeight);
+      World.add(world, wallsRef.current);
+
+      const nextPhotos = bag.photos.map((photo) => {
+        const body = Bodies.rectangle(
+          canvasWidth * photo.x,
+          canvasHeight * photo.y,
+          photo.size,
+          photo.size,
+          {
+            label: 'photo',
+            restitution: 0.24,
+            friction: 0.68,
+            frictionStatic: 0.86,
+            frictionAir: 0.04,
+            density: 0.0012,
+            chamfer: { radius: 2 },
+          },
+        );
+
+        Body.setAngle(body, photo.angle);
+        World.add(world, body);
+
+        return { ...photo, body };
+      });
+
+      worldSizeRef.current = { width: canvasWidth, height: canvasHeight };
+      setPhotos(nextPhotos);
+    },
+    [bag.photos, photos],
+  );
+
+  const onCanvasLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      const { width: canvasWidth, height: canvasHeight } = event.nativeEvent.layout;
+      const current = worldSizeRef.current;
+
+      if (current.width === canvasWidth && current.height === canvasHeight) {
+        return;
+      }
+
+      syncWorld(canvasWidth, canvasHeight);
+    },
+    [syncWorld],
+  );
+
+  useEffect(() => {
+    const engine = engineRef.current;
+    let frameId = 0;
+    let lastTime = performance.now();
+
+    const tick = (time: number) => {
+      const delta = Math.min(time - lastTime, FIXED_TIMESTEP * 2);
+      lastTime = time;
+      Engine.update(engine, delta || FIXED_TIMESTEP);
+      setFrame((value) => (value + 1) % 1000000);
+      frameId = requestAnimationFrame(tick);
+    };
+
+    frameId = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(frameId);
+      Engine.clear(engine);
+    };
+  }, []);
+
+  useEffect(() => {
+    Accelerometer.setUpdateInterval(50);
+
+    const GRAVITY_MULT = 3.2;
+    const GRAVITY_SCALE = 0.0018;
+    const FORCE_FACTOR = 0.0014;
+
+    const subscription = Accelerometer.addListener(({ x, y }: { x: number; y: number; z: number }) => {
+      const engine = engineRef.current;
+      const isAndroid = Platform.OS === 'android';
+      const axisX = isAndroid ? -x : x;
+      const axisY = isAndroid ? y : -y;
+
+      engine.world.gravity.x = Math.max(-5, Math.min(5, axisX * GRAVITY_MULT));
+      engine.world.gravity.y = Math.max(-5, Math.min(5, axisY * GRAVITY_MULT));
+      engine.world.gravity.scale = GRAVITY_SCALE;
+
+      try {
+        const bodies = engine.world.bodies as Matter.Body[];
+        for (let i = 0; i < bodies.length; i++) {
+          const body = bodies[i];
+          if (body.label === 'photo') {
+            Body.applyForce(body, body.position, {
+              x: axisX * FORCE_FACTOR * (body.mass ?? 1),
+              y: axisY * FORCE_FACTOR * (body.mass ?? 1),
+            });
+          }
+        }
+      } catch {
+        // ignore
+      }
+    });
+
+    return () => subscription.remove();
+  }, []);
 
   return (
     <View
@@ -227,59 +387,16 @@ function BagPage({
         styles.page,
         {
           width,
-          paddingTop: topInset + 18,
-          paddingBottom: bottomInset + 28,
+          paddingTop: topInset + 16,
+          paddingBottom: bottomInset + 12,
         },
       ]}
     >
-      <View style={styles.header}>
-        <Image source={require('@/assets/images/InMyBag.png')} style={styles.logoImage} />
-        <View style={styles.headerCopy}>
-          <Text style={styles.brandName}>InMyBag</Text>
-          <Text style={styles.feedLabel}>Friends Bag Feed</Text>
-        </View>
-      </View>
-
-      <View style={styles.friendRow}>
-        <View style={[styles.avatar, { backgroundColor: bag.avatarColor }]}>
-          <Text style={styles.avatarText}>{bag.name[0]}</Text>
-        </View>
-        <View style={styles.friendCopy}>
-          <Text style={styles.userName}>@{bag.user}</Text>
-          <Text style={styles.mood}>{bag.mood}</Text>
-        </View>
-      </View>
-
-      <View style={[styles.bagCanvas, { height: canvasHeight }]}>
-        <View style={styles.canvasGlow} />
-        {bag.photos.map((photo) => (
-          <View
-            key={photo.id}
-            style={[
-              styles.photoCard,
-              {
-                left: photo.left,
-                top: photo.top,
-                width: photo.size,
-                height: photo.size,
-                transform: [{ rotate: photo.rotate }],
-              },
-            ]}
-          >
-            <Image source={{ uri: photo.uri }} style={styles.photo} contentFit="cover" />
-          </View>
+      <Text style={styles.userName}>@{bag.user}</Text>
+      <View style={styles.canvas} onLayout={onCanvasLayout}>
+        {photos.map((photo) => (
+          <PhysicsPhoto key={photo.id} photo={photo} frame={frame} />
         ))}
-      </View>
-
-      <View style={styles.summary}>
-        <Text style={styles.title}>{bag.title}</Text>
-        <View style={styles.chips}>
-          {bag.items.map((item) => (
-            <View key={item} style={styles.chip}>
-              <Text style={styles.chipText}>{item}</Text>
-            </View>
-          ))}
-        </View>
       </View>
     </View>
   );
@@ -288,12 +405,6 @@ function BagPage({
 export default function HomeScreen() {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const [activeIndex, setActiveIndex] = useState(0);
-
-  const onMomentumScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const nextIndex = Math.round(event.nativeEvent.contentOffset.x / width);
-    setActiveIndex(nextIndex);
-  };
 
   return (
     <View style={styles.container}>
@@ -302,11 +413,11 @@ export default function HomeScreen() {
         horizontal
         pagingEnabled
         bounces={false}
+        contentInsetAdjustmentBehavior="automatic"
         keyExtractor={(item) => item.id}
         showsHorizontalScrollIndicator={false}
-        onMomentumScrollEnd={onMomentumScrollEnd}
         renderItem={({ item }) => (
-          <BagPage
+          <FriendBagPage
             bag={item}
             width={width}
             topInset={insets.top}
@@ -314,15 +425,6 @@ export default function HomeScreen() {
           />
         )}
       />
-
-      <View style={[styles.pagination, { bottom: insets.bottom + 18 }]}>
-        {mockBags.map((bag, index) => (
-          <View
-            key={bag.id}
-            style={[styles.dot, activeIndex === index ? styles.activeDot : undefined]}
-          />
-        ))}
-      </View>
     </View>
   );
 }
@@ -334,140 +436,26 @@ const styles = StyleSheet.create({
   },
   page: {
     flex: 1,
-    paddingHorizontal: 18,
-    gap: 16,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: 12,
-  },
-  logoImage: {
-    width: 52,
-    height: 52,
-    borderRadius: 8,
-  },
-  headerCopy: {
-    flex: 1,
-  },
-  brandName: {
-    color: Brand.primary,
-    fontSize: 26,
-    fontWeight: '900',
-  },
-  feedLabel: {
-    color: Brand.muted,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  friendRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: Brand.surface,
-    borderColor: Brand.border,
-    borderRadius: 8,
-    borderWidth: 1,
-    padding: 12,
-  },
-  avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '900',
-  },
-  friendCopy: {
-    flex: 1,
+    paddingHorizontal: 14,
   },
   userName: {
     color: Brand.text,
-    fontSize: 16,
+    fontSize: 20,
     fontWeight: '900',
   },
-  mood: {
-    color: Brand.muted,
-    fontSize: 13,
-    fontWeight: '600',
-    marginTop: 3,
-  },
-  bagCanvas: {
-    position: 'relative',
+  canvas: {
+    flex: 1,
     overflow: 'hidden',
-    backgroundColor: '#07101F',
-    borderColor: '#17233B',
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  canvasGlow: {
-    position: 'absolute',
-    left: '12%',
-    top: '8%',
-    width: '76%',
-    height: '76%',
-    borderRadius: 999,
-    backgroundColor: 'rgba(1, 69, 242, 0.18)',
+    backgroundColor: Brand.secondary,
   },
   photoCard: {
     position: 'absolute',
     overflow: 'hidden',
-    borderColor: '#FFFFFF',
-    borderRadius: 8,
-    borderWidth: 4,
     backgroundColor: '#FFFFFF',
   },
   photo: {
     width: '100%',
     height: '100%',
-  },
-  summary: {
-    gap: 12,
-  },
-  title: {
-    color: Brand.text,
-    fontSize: 24,
-    fontWeight: '900',
-    lineHeight: 30,
-  },
-  chips: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  chip: {
-    backgroundColor: Brand.surface,
-    borderColor: Brand.border,
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  chipText: {
-    color: Brand.text,
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  pagination: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 7,
-  },
-  dot: {
-    width: 7,
-    height: 7,
-    borderRadius: 999,
-    backgroundColor: '#B7C0CC',
-  },
-  activeDot: {
-    width: 22,
-    backgroundColor: Brand.primary,
   },
 });
