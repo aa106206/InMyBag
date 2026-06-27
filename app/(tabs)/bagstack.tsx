@@ -141,9 +141,9 @@ export default function BagStackScreen() {
   useEffect(() => {
     Accelerometer.setUpdateInterval(50);
 
-    const GRAVITY_MULT = 5.5;
-    const GRAVITY_SCALE = 0.0028;
-    const FORCE_FACTOR = 0.0032;
+    const GRAVITY_MULT = 3.2;
+    const GRAVITY_SCALE = 0.0018;
+    const FORCE_FACTOR = 0.0014;
 
     const subscription = Accelerometer.addListener(({ x, y }: { x: number; y: number; z: number }) => {
       const engine = engineRef.current;
@@ -151,7 +151,7 @@ export default function BagStackScreen() {
       const axisX = isAndroid ? -x : x;
       const axisY = isAndroid ? y : -y;
 
-      // Normalize accelerometer axes across iOS/Android so the physics feel consistent
+      // Normalize accelerometer axes across iOS/Android so the physics feel consistent.
       engine.world.gravity.x = Math.max(-5, Math.min(5, axisX * GRAVITY_MULT));
       engine.world.gravity.y = Math.max(-5, Math.min(5, axisY * GRAVITY_MULT));
       engine.world.gravity.scale = GRAVITY_SCALE;
@@ -168,7 +168,7 @@ export default function BagStackScreen() {
             });
           }
         }
-      } catch (e) {
+      } catch {
         // ignore
       }
     });
@@ -193,15 +193,15 @@ export default function BagStackScreen() {
         restitution: 0.28,
         friction: 0.65,
         frictionStatic: 0.85,
-        frictionAir: 0.012,
+        frictionAir: 0.035,
         density: 0.0012,
         chamfer: { radius: 2 },
       });
 
       Body.setAngularVelocity(body, (Math.random() - 0.5) * 0.12);
       Body.setVelocity(body, {
-        x: (Math.random() - 0.5) * 1.5,
-        y: 1.5,
+        x: (Math.random() - 0.5) * 0.6,
+        y: 0.45,
       });
 
       World.add(engineRef.current.world, body);
