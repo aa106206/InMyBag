@@ -21,10 +21,10 @@ export default function RootLayout() {
     colors: {
       ...navigationTheme.colors,
       primary: Brand.primary,
-      background: colorScheme === 'dark' ? '#081329' : Brand.secondary,
-      card: colorScheme === 'dark' ? '#081329' : Brand.surface,
-      text: colorScheme === 'dark' ? '#ECEDEE' : Brand.text,
-      border: colorScheme === 'dark' ? '#24324A' : Brand.border,
+      background: colorScheme === 'dark' ? Brand.text : Brand.secondary,
+      card: colorScheme === 'dark' ? Brand.text : Brand.surface,
+      text: colorScheme === 'dark' ? Brand.secondary : Brand.text,
+      border: colorScheme === 'dark' ? '#3A4352' : Brand.border,
     },
   };
 

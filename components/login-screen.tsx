@@ -1,4 +1,5 @@
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useState } from 'react';
 import {
   KeyboardAvoidingView,
@@ -23,7 +24,11 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
 
   return (
     <KeyboardAvoidingView style={styles.screen} behavior="padding">
-      <View
+      <LinearGradient
+        colors={[Brand.secondary, Brand.primarySoft, Brand.primary, Brand.lavender]}
+        locations={[0, 0.42, 0.74, 1]}
+        start={{ x: 0.05, y: 0 }}
+        end={{ x: 1, y: 1 }}
         style={[
           styles.content,
           {
@@ -42,7 +47,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
             value={username}
             onChangeText={setUsername}
             placeholder="아이디"
-            placeholderTextColor="rgba(255,255,255,0.64)"
+            placeholderTextColor={Brand.muted}
             autoCapitalize="none"
             autoCorrect={false}
             style={styles.input}
@@ -51,7 +56,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
             value={password}
             onChangeText={setPassword}
             placeholder="비밀번호"
-            placeholderTextColor="rgba(255,255,255,0.64)"
+            placeholderTextColor={Brand.muted}
             secureTextEntry
             style={styles.input}
           />
@@ -66,7 +71,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
             <Text style={styles.signupText}>가입하기</Text>
           </Pressable>
         </View>
-      </View>
+      </LinearGradient>
     </KeyboardAvoidingView>
   );
 }
@@ -74,7 +79,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: Brand.primary,
+    backgroundColor: Brand.secondary,
   },
   content: {
     flex: 1,
@@ -90,10 +95,12 @@ const styles = StyleSheet.create({
     width: 86,
     height: 86,
     borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.22)',
+    backgroundColor: 'rgba(255,255,255,0.46)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.7)',
   },
   brandName: {
-    color: '#FFFFFF',
+    color: Brand.text,
     fontSize: 40,
     fontWeight: '900',
   },
@@ -104,8 +111,10 @@ const styles = StyleSheet.create({
     height: 52,
     borderRadius: 8,
     paddingHorizontal: 16,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    color: '#FFFFFF',
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.82)',
+    color: Brand.text,
     fontSize: 16,
     fontWeight: '700',
   },
@@ -115,11 +124,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.46)',
-    backgroundColor: 'rgba(255,255,255,0.16)',
+    borderColor: Brand.text,
+    backgroundColor: Brand.text,
   },
   loginText: {
-    color: '#FFFFFF',
+    color: Brand.secondary,
     fontSize: 16,
     fontWeight: '900',
   },
@@ -132,12 +141,12 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   footerText: {
-    color: 'rgba(255,255,255,0.78)',
+    color: Brand.text,
     fontSize: 14,
     fontWeight: '700',
   },
   signupText: {
-    color: '#FFFFFF',
+    color: Brand.text,
     fontSize: 14,
     fontWeight: '900',
   },

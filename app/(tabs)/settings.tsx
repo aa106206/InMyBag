@@ -122,7 +122,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   actionPressed: {
-    backgroundColor: '#F7F9FC',
+    backgroundColor: Brand.surfaceWarm,
   },
   actionDivider: {
     borderBottomWidth: 1,
