@@ -5,6 +5,7 @@ import {
   FlatList,
   Image,
   LayoutChangeEvent,
+  PanResponder,
   Platform,
   StyleSheet,
   Text,
@@ -231,11 +232,49 @@ function createWalls(width: number, height: number) {
 function PhysicsPhoto({ photo, frame }: { photo: PhysicsPhotoItem; frame: number }) {
   void frame;
 
+  const bodyRef = useRef(photo.body);
+  const dragStartRef = useRef({ x: 0, y: 0 });
+  bodyRef.current = photo.body;
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderGrant: () => {
+        const body = bodyRef.current;
+        dragStartRef.current = { x: body.position.x, y: body.position.y };
+        Body.setStatic(body, true);
+        Body.setVelocity(body, { x: 0, y: 0 });
+        Body.setAngularVelocity(body, 0);
+      },
+      onPanResponderMove: (_, gestureState) => {
+        const body = bodyRef.current;
+        Body.setPosition(body, {
+          x: dragStartRef.current.x + gestureState.dx,
+          y: dragStartRef.current.y + gestureState.dy,
+        });
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        const body = bodyRef.current;
+        Body.setStatic(body, false);
+        Body.setVelocity(body, {
+          x: gestureState.vx * 4,
+          y: gestureState.vy * 4,
+        });
+      },
+      onPanResponderTerminate: () => {
+        const body = bodyRef.current;
+        Body.setStatic(body, false);
+        Body.setVelocity(body, { x: 0, y: 0 });
+      },
+    }),
+  ).current;
+
   const { x, y } = photo.body.position;
 
   return (
     <View
-      pointerEvents="none"
       style={[
         styles.photoCard,
         {
@@ -246,6 +285,7 @@ function PhysicsPhoto({ photo, frame }: { photo: PhysicsPhotoItem; frame: number
           transform: [{ rotate: `${photo.body.angle}rad` }],
         },
       ]}
+      {...panResponder.panHandlers}
     >
       <Image source={{ uri: photo.uri }} style={styles.photo} />
     </View>
