@@ -612,9 +612,9 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 21,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: Brand.surface,
     borderWidth: 2,
-    borderColor: '#FFFFFF',
+    borderColor: Brand.surface,
   },
   userName: {
     color: Brand.text,
@@ -629,7 +629,7 @@ const styles = StyleSheet.create({
   photoCard: {
     position: 'absolute',
     overflow: 'hidden',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: Brand.surface,
   },
   photo: {
     width: '100%',

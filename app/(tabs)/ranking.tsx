@@ -241,7 +241,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F5B72E',
+    backgroundColor: Brand.lavender,
     borderWidth: 2,
     borderColor: Brand.surface,
   },
@@ -251,7 +251,7 @@ const styles = StyleSheet.create({
     borderRadius: 17,
   },
   rankBadgeText: {
-    color: '#3B2A04',
+    color: Brand.text,
     fontSize: 14,
     fontWeight: '900',
   },
