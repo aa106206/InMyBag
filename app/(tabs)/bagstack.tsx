@@ -17,8 +17,11 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Brand } from "@/constants/theme";
+import { getSam2ServerUrl, segmentImageWithSam2 } from "@/services/sam2";
 
-const CARD_SIZE = 92;
+const DEFAULT_OBJECT_SIZE = 92;
+const MAX_OBJECT_SIZE = 132;
+const MIN_OBJECT_SIZE = 72;
 const H_PADDING = 16;
 const WALL_THICKNESS = 60;
 const FIXED_TIMESTEP = 1000 / 60;
@@ -38,7 +41,12 @@ type BagHistoryItem = {
   photos: HistoryPhoto[];
 };
 
-type PhotoItem = {
+type ObjectSize = {
+  width: number;
+  height: number;
+};
+
+type PhotoItem = ObjectSize & {
   id: string;
   uri: string;
   body: Matter.Body;
@@ -332,6 +340,23 @@ const historyItems: BagHistoryItem[] = [
   },
 ];
 
+function getObjectDisplaySize(width?: number, height?: number): ObjectSize {
+  if (!width || !height || width <= 0 || height <= 0) {
+    return { width: DEFAULT_OBJECT_SIZE, height: DEFAULT_OBJECT_SIZE };
+  }
+
+  const longestSide = Math.max(width, height);
+  const shortestSide = Math.min(width, height);
+  const maxScale = MAX_OBJECT_SIZE / longestSide;
+  const minScale = MIN_OBJECT_SIZE / shortestSide;
+  const scale = Math.max(maxScale, minScale);
+
+  return {
+    width: Math.round(width * scale),
+    height: Math.round(height * scale),
+  };
+}
+
 function createWalls(width: number, height: number) {
   const half = WALL_THICKNESS / 2;
 
@@ -372,17 +397,19 @@ function createWalls(width: number, height: number) {
 
 function clampPhotoPosition(
   position: { x: number; y: number },
+  size: ObjectSize,
   worldSize: WorldSize,
 ) {
   if (worldSize.width <= 0 || worldSize.height <= 0) {
     return position;
   }
 
-  const half = CARD_SIZE / 2;
+  const halfWidth = size.width / 2;
+  const halfHeight = size.height / 2;
 
   return {
-    x: Math.max(half, Math.min(worldSize.width - half, position.x)),
-    y: Math.max(half, Math.min(worldSize.height - half, position.y)),
+    x: Math.max(halfWidth, Math.min(worldSize.width - halfWidth, position.x)),
+    y: Math.max(halfHeight, Math.min(worldSize.height - halfHeight, position.y)),
   };
 }
 
@@ -398,9 +425,11 @@ function PhysicsPhoto({
   void frame;
 
   const bodyRef = useRef(photo.body);
+  const photoSizeRef = useRef<ObjectSize>({ width: photo.width, height: photo.height });
   const dragStartRef = useRef({ x: 0, y: 0 });
   const worldSizeRef = useRef(worldSize);
   bodyRef.current = photo.body;
+  photoSizeRef.current = { width: photo.width, height: photo.height };
   worldSizeRef.current = worldSize;
 
   const panResponder = useRef(
@@ -424,13 +453,17 @@ function PhysicsPhoto({
               x: dragStartRef.current.x + gestureState.dx,
               y: dragStartRef.current.y + gestureState.dy,
             },
+            photoSizeRef.current,
             worldSizeRef.current,
           ),
         );
       },
       onPanResponderRelease: (_, gestureState) => {
         const body = bodyRef.current;
-        Body.setPosition(body, clampPhotoPosition(body.position, worldSizeRef.current));
+        Body.setPosition(
+          body,
+          clampPhotoPosition(body.position, photoSizeRef.current, worldSizeRef.current),
+        );
         Body.setStatic(body, false);
         Body.setVelocity(body, {
           x: gestureState.vx * 4,
@@ -451,16 +484,18 @@ function PhysicsPhoto({
   return (
     <View
       style={[
-        styles.card,
+        styles.objectLayer,
         {
-          left: x - CARD_SIZE / 2,
-          top: y - CARD_SIZE / 2,
+          left: x - photo.width / 2,
+          top: y - photo.height / 2,
+          width: photo.width,
+          height: photo.height,
           transform: [{ rotate: `${angle}rad` }],
         },
       ]}
       {...panResponder.panHandlers}
     >
-      <Image source={{ uri: photo.uri }} style={styles.cardImage} />
+      <Image source={{ uri: photo.uri }} style={styles.objectImage} resizeMode="contain" />
     </View>
   );
 }
@@ -484,7 +519,7 @@ function HistoryCard({ item }: { item: BagHistoryItem }) {
               },
             ]}
           >
-            <Image source={{ uri: photo.uri }} style={styles.cardImage} />
+            <Image source={{ uri: photo.uri }} style={styles.historyImage} />
           </View>
         ))}
       </View>
@@ -496,11 +531,12 @@ export default function BagStackScreen() {
   const insets = useSafeAreaInsets();
   const engineRef = useRef(Engine.create({ gravity: { x: 0, y: 0, scale: 0.002 } }));
   const wallsRef = useRef<Matter.Body[]>([]);
-  const worldSizeRef = useRef({ width: 0, height: 0 });
+  const worldSizeRef = useRef<WorldSize>({ width: 0, height: 0 });
 
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
   const [frame, setFrame] = useState(0);
   const [showHistory, setShowHistory] = useState(false);
+  const [isSegmenting, setIsSegmenting] = useState(false);
 
   const syncWalls = useCallback((width: number, height: number) => {
     if (width <= 0 || height <= 0) {
@@ -556,20 +592,18 @@ export default function BagStackScreen() {
       const axisX = isAndroid ? -x : x;
       const axisY = isAndroid ? y : -y;
 
-      // Normalize accelerometer axes across iOS/Android so the physics feel consistent.
       engine.world.gravity.x = Math.max(-5, Math.min(5, axisX * GRAVITY_MULT));
       engine.world.gravity.y = Math.max(-5, Math.min(5, axisY * GRAVITY_MULT));
       engine.world.gravity.scale = GRAVITY_SCALE;
 
-      // Apply a small instantaneous force to photo bodies to make movement more dynamic
       try {
         const bodies = engine.world.bodies as Matter.Body[];
         for (let i = 0; i < bodies.length; i++) {
-          const b = bodies[i];
-          if (b.label === "photo") {
-            Body.applyForce(b, b.position, {
-              x: axisX * FORCE_FACTOR * (b.mass ?? 1),
-              y: axisY * FORCE_FACTOR * (b.mass ?? 1),
+          const body = bodies[i];
+          if (body.label === "photo") {
+            Body.applyForce(body, body.position, {
+              x: axisX * FORCE_FACTOR * (body.mass ?? 1),
+              y: axisY * FORCE_FACTOR * (body.mass ?? 1),
             });
           }
         }
@@ -582,18 +616,21 @@ export default function BagStackScreen() {
   }, []);
 
   const spawnPhoto = useCallback(
-    (uri: string) => {
-      const { width, height } = worldSizeRef.current;
-      if (width <= 0 || height <= 0) {
+    (uri: string, imageSize?: ObjectSize) => {
+      const { width: worldWidth, height: worldHeight } = worldSizeRef.current;
+      if (worldWidth <= 0 || worldHeight <= 0) {
         return;
       }
 
+      const displaySize = getObjectDisplaySize(imageSize?.width, imageSize?.height);
+      const halfWidth = displaySize.width / 2;
+      const halfHeight = displaySize.height / 2;
       const spawnX =
-        CARD_SIZE / 2 +
-        Math.random() * Math.max(CARD_SIZE, width - CARD_SIZE);
-      const spawnY = CARD_SIZE / 2 + WALL_THICKNESS / 2 + 8;
+        halfWidth +
+        Math.random() * Math.max(displaySize.width, worldWidth - displaySize.width);
+      const spawnY = halfHeight + WALL_THICKNESS / 2 + 8;
 
-      const body = Bodies.rectangle(spawnX, spawnY, CARD_SIZE, CARD_SIZE, {
+      const body = Bodies.rectangle(spawnX, spawnY, displaySize.width, displaySize.height, {
         label: "photo",
         restitution: 0.28,
         friction: 0.65,
@@ -614,6 +651,8 @@ export default function BagStackScreen() {
       const item: PhotoItem = {
         id: `${Date.now()}-${body.id}`,
         uri,
+        width: displaySize.width,
+        height: displaySize.height,
         body,
       };
 
@@ -637,9 +676,24 @@ export default function BagStackScreen() {
     });
 
     if (!result.canceled && result.assets[0]?.uri) {
-      spawnPhoto(result.assets[0].uri);
+      const photoUri = result.assets[0].uri;
+      setIsSegmenting(true);
+
+      try {
+        const segmented = await segmentImageWithSam2(photoUri);
+        spawnPhoto(segmented.uri, { width: segmented.width, height: segmented.height });
+      } catch (error) {
+        console.warn("SAM2 segmentation failed. Skipping rectangular original image.", error);
+        Alert.alert(
+          "SAM2 연결 실패",
+          `객체 분리에 실패해서 사진을 추가하지 않았어요.\n서버 주소: ${getSam2ServerUrl()}`,
+        ); 
+      } finally {
+        setIsSegmenting(false);
+      }
     }
   }, [spawnPhoto]);
+  
 
   const resetStack = useCallback(() => {
     const world = engineRef.current.world;
@@ -655,6 +709,13 @@ export default function BagStackScreen() {
         <Image source={require("@/assets/images/InMyBag.png")} style={styles.logoImage} />
         <View style={styles.topCopy}>
           <Text style={styles.topTitle}>{showHistory ? "가방 기록" : "내 가방"}</Text>
+          {!showHistory ? (
+            <Text style={styles.topSubtitle}>
+              {isSegmenting
+                ? "SAM2가 사진 속 물건을 분리하고 있어요"
+                : "사진을 찍으면 SAM2로 물건만 분리해 쌓아요"}
+            </Text>
+          ) : null}
         </View>
         <Pressable
           style={[styles.modeToggle, showHistory ? styles.modeToggleActive : undefined]}
@@ -678,14 +739,18 @@ export default function BagStackScreen() {
         </ScrollView>
       ) : (
         <>
-          <View
-            style={styles.canvas}
-            onLayout={onCanvasLayout}
-          >
+          <View style={styles.canvas} onLayout={onCanvasLayout}>
             {photos.length === 0 ? (
               <View style={styles.emptyState}>
                 <Text style={styles.emptyTitle}>첫 번째 물건을 담아보세요</Text>
-                <Text style={styles.emptyText}>아래 버튼으로 사진을 찍으면 이 공간에 카드가 떨어집니다.</Text>
+                <Text style={styles.emptyText}>
+                  아래 버튼으로 사진을 찍으면 SAM2가 물건만 잘라 이 공간에 떨어뜨립니다.
+                </Text>
+              </View>
+            ) : null}
+            {isSegmenting ? (
+              <View style={styles.segmentingBadge}>
+                <Text style={styles.segmentingText}>SAM2 분석 중...</Text>
               </View>
             ) : null}
             {photos.map((photo) => (
@@ -698,14 +763,13 @@ export default function BagStackScreen() {
             ))}
           </View>
 
-          <View
-            style={[
-              styles.bottomBar,
-              { paddingBottom: 8 },
-            ]}
-          >
-            <Pressable style={[styles.button, styles.primaryButton]} onPress={pickFromCamera}>
-              <Text style={styles.buttonText}>사진 찍기</Text>
+          <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+            <Pressable
+              style={[styles.button, styles.primaryButton, isSegmenting && styles.disabledButton]}
+              onPress={pickFromCamera}
+              disabled={isSegmenting}
+            >
+              <Text style={styles.buttonText}>{isSegmenting ? "분석 중" : "사진 찍기"}</Text>
             </Pressable>
             <Pressable style={[styles.button, styles.secondaryButton]} onPress={resetStack}>
               <Text style={styles.secondaryButtonText}>리셋</Text>
@@ -744,6 +808,12 @@ const styles = StyleSheet.create({
     color: Brand.primary,
     fontSize: 22,
     fontWeight: "900",
+  },
+  topSubtitle: {
+    color: Brand.muted,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 2,
   },
   modeToggle: {
     width: 54,
@@ -797,18 +867,33 @@ const styles = StyleSheet.create({
     marginTop: 8,
     lineHeight: 20,
   },
-  card: {
+  segmentingBadge: {
     position: "absolute",
-    width: CARD_SIZE,
-    height: CARD_SIZE,
-    overflow: "hidden",
-    borderRadius: 8,
-    borderWidth: 3,
-    borderColor: Brand.surface,
+    alignSelf: "center",
+    top: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: Brand.primary,
   },
-  cardImage: {
+  segmentingText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  objectLayer: {
+    position: "absolute",
+    backgroundColor: "transparent",
+    borderWidth: 0,
+    borderRadius: 0,
+    elevation: 0,
+    shadowOpacity: 0,
+    overflow: "visible",
+  },
+  objectImage: {
     width: "100%",
     height: "100%",
+    backgroundColor: "transparent",
   },
   history: {
     flex: 1,
@@ -854,6 +939,10 @@ const styles = StyleSheet.create({
     borderColor: Brand.surface,
     backgroundColor: Brand.surface,
   },
+  historyImage: {
+    width: "100%",
+    height: "100%",
+  },
   bottomBar: {
     flexDirection: "row",
     gap: 12,
@@ -871,6 +960,9 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     backgroundColor: Brand.primary,
+  },
+  disabledButton: {
+    opacity: 0.64,
   },
   secondaryButton: {
     backgroundColor: Brand.secondary,
