@@ -32,9 +32,15 @@ type PhysicsPhotoItem = BagPhotoSeed & {
   body: Matter.Body;
 };
 
+type WorldSize = {
+  width: number;
+  height: number;
+};
+
 type FriendBag = {
   id: string;
   user: string;
+  avatar: string;
   photos: BagPhotoSeed[];
 };
 
@@ -42,6 +48,7 @@ const mockBags: FriendBag[] = [
   {
     id: 'james',
     user: 'james',
+    avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=240',
     photos: [
       {
         id: 'laptop',
@@ -80,6 +87,7 @@ const mockBags: FriendBag[] = [
   {
     id: 'hyunbin',
     user: 'hyunbin',
+    avatar: 'https://images.unsplash.com/photo-1527980965255-d3b416303d12?w=240',
     photos: [
       {
         id: 'shoes',
@@ -118,6 +126,7 @@ const mockBags: FriendBag[] = [
   {
     id: 'dongjun',
     user: 'dongjun',
+    avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=240',
     photos: [
       {
         id: 'tablet',
@@ -156,6 +165,7 @@ const mockBags: FriendBag[] = [
   {
     id: 'yuna',
     user: 'yuna',
+    avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=240',
     photos: [
       {
         id: 'camera',
@@ -229,12 +239,39 @@ function createWalls(width: number, height: number) {
   return [ground, topWall, leftWall, rightWall];
 }
 
-function PhysicsPhoto({ photo, frame }: { photo: PhysicsPhotoItem; frame: number }) {
+function clampPhotoPosition(
+  position: { x: number; y: number },
+  worldSize: WorldSize,
+  photoSize: number,
+) {
+  if (worldSize.width <= 0 || worldSize.height <= 0) {
+    return position;
+  }
+
+  const inset = photoSize / 2;
+
+  return {
+    x: Math.max(inset, Math.min(worldSize.width - inset, position.x)),
+    y: Math.max(inset, Math.min(worldSize.height - inset, position.y)),
+  };
+}
+
+function PhysicsPhoto({
+  photo,
+  frame,
+  worldSize,
+}: {
+  photo: PhysicsPhotoItem;
+  frame: number;
+  worldSize: WorldSize;
+}) {
   void frame;
 
   const bodyRef = useRef(photo.body);
   const dragStartRef = useRef({ x: 0, y: 0 });
+  const worldSizeRef = useRef(worldSize);
   bodyRef.current = photo.body;
+  worldSizeRef.current = worldSize;
 
   const panResponder = useRef(
     PanResponder.create({
@@ -250,13 +287,24 @@ function PhysicsPhoto({ photo, frame }: { photo: PhysicsPhotoItem; frame: number
       },
       onPanResponderMove: (_, gestureState) => {
         const body = bodyRef.current;
-        Body.setPosition(body, {
-          x: dragStartRef.current.x + gestureState.dx,
-          y: dragStartRef.current.y + gestureState.dy,
-        });
+        Body.setPosition(
+          body,
+          clampPhotoPosition(
+            {
+              x: dragStartRef.current.x + gestureState.dx,
+              y: dragStartRef.current.y + gestureState.dy,
+            },
+            worldSizeRef.current,
+            photo.size,
+          ),
+        );
       },
       onPanResponderRelease: (_, gestureState) => {
         const body = bodyRef.current;
+        Body.setPosition(
+          body,
+          clampPhotoPosition(body.position, worldSizeRef.current, photo.size),
+        );
         Body.setStatic(body, false);
         Body.setVelocity(body, {
           x: gestureState.vx * 4,
@@ -265,6 +313,10 @@ function PhysicsPhoto({ photo, frame }: { photo: PhysicsPhotoItem; frame: number
       },
       onPanResponderTerminate: () => {
         const body = bodyRef.current;
+        Body.setPosition(
+          body,
+          clampPhotoPosition(body.position, worldSizeRef.current, photo.size),
+        );
         Body.setStatic(body, false);
         Body.setVelocity(body, { x: 0, y: 0 });
       },
@@ -296,12 +348,10 @@ function FriendBagPage({
   bag,
   width,
   topInset,
-  bottomInset,
 }: {
   bag: FriendBag;
   width: number;
   topInset: number;
-  bottomInset: number;
 }) {
   const engineRef = useRef(Engine.create({ gravity: { x: 0, y: 0, scale: 0.002 } }));
   const wallsRef = useRef<Matter.Body[]>([]);
@@ -428,14 +478,22 @@ function FriendBagPage({
         {
           width,
           paddingTop: topInset + 16,
-          paddingBottom: bottomInset + 12,
+          paddingBottom: 0,
         },
       ]}
     >
-      <Text style={styles.userName}>@{bag.user}</Text>
+      <View style={styles.profileRow}>
+        <Image source={{ uri: bag.avatar }} style={styles.avatar} />
+        <Text style={styles.userName}>@{bag.user}</Text>
+      </View>
       <View style={styles.canvas} onLayout={onCanvasLayout}>
         {photos.map((photo) => (
-          <PhysicsPhoto key={photo.id} photo={photo} frame={frame} />
+          <PhysicsPhoto
+            key={photo.id}
+            photo={photo}
+            frame={frame}
+            worldSize={worldSizeRef.current}
+          />
         ))}
       </View>
     </View>
@@ -461,7 +519,6 @@ export default function HomeScreen() {
             bag={item}
             width={width}
             topInset={insets.top}
-            bottomInset={insets.bottom}
           />
         )}
       />
@@ -476,8 +533,21 @@ const styles = StyleSheet.create({
   },
   page: {
     flex: 1,
-    gap: 12,
+    gap: 10,
     paddingHorizontal: 14,
+  },
+  profileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  avatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
   },
   userName: {
     color: Brand.text,
