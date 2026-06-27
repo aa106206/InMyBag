@@ -44,6 +44,11 @@ type PhotoItem = {
   body: Matter.Body;
 };
 
+type WorldSize = {
+  width: number;
+  height: number;
+};
+
 const historyItems: BagHistoryItem[] = [
   {
     id: "2026-06-17",
@@ -365,12 +370,38 @@ function createWalls(width: number, height: number) {
   return [ground, leftWall, rightWall, topWall];
 }
 
-function PhysicsPhoto({ photo, frame }: { photo: PhotoItem; frame: number }) {
+function clampPhotoPosition(
+  position: { x: number; y: number },
+  worldSize: WorldSize,
+) {
+  if (worldSize.width <= 0 || worldSize.height <= 0) {
+    return position;
+  }
+
+  const half = CARD_SIZE / 2;
+
+  return {
+    x: Math.max(half, Math.min(worldSize.width - half, position.x)),
+    y: Math.max(half, Math.min(worldSize.height - half, position.y)),
+  };
+}
+
+function PhysicsPhoto({
+  photo,
+  frame,
+  worldSize,
+}: {
+  photo: PhotoItem;
+  frame: number;
+  worldSize: WorldSize;
+}) {
   void frame;
 
   const bodyRef = useRef(photo.body);
   const dragStartRef = useRef({ x: 0, y: 0 });
+  const worldSizeRef = useRef(worldSize);
   bodyRef.current = photo.body;
+  worldSizeRef.current = worldSize;
 
   const panResponder = useRef(
     PanResponder.create({
@@ -386,13 +417,20 @@ function PhysicsPhoto({ photo, frame }: { photo: PhotoItem; frame: number }) {
       },
       onPanResponderMove: (_, gestureState) => {
         const body = bodyRef.current;
-        Body.setPosition(body, {
-          x: dragStartRef.current.x + gestureState.dx,
-          y: dragStartRef.current.y + gestureState.dy,
-        });
+        Body.setPosition(
+          body,
+          clampPhotoPosition(
+            {
+              x: dragStartRef.current.x + gestureState.dx,
+              y: dragStartRef.current.y + gestureState.dy,
+            },
+            worldSizeRef.current,
+          ),
+        );
       },
       onPanResponderRelease: (_, gestureState) => {
         const body = bodyRef.current;
+        Body.setPosition(body, clampPhotoPosition(body.position, worldSizeRef.current));
         Body.setStatic(body, false);
         Body.setVelocity(body, {
           x: gestureState.vx * 4,
@@ -651,7 +689,12 @@ export default function BagStackScreen() {
               </View>
             ) : null}
             {photos.map((photo) => (
-              <PhysicsPhoto key={photo.id} photo={photo} frame={frame} />
+              <PhysicsPhoto
+                key={photo.id}
+                photo={photo}
+                frame={frame}
+                worldSize={worldSizeRef.current}
+              />
             ))}
           </View>
 
