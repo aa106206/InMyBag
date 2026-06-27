@@ -1,8 +1,10 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useState } from 'react';
 import 'react-native-reanimated';
 
+import { LoginScreen } from '@/components/login-screen';
 import { Brand } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
@@ -12,6 +14,7 @@ export const unstable_settings = {
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+  const [isSignedIn, setIsSignedIn] = useState(false);
   const navigationTheme = colorScheme === 'dark' ? DarkTheme : DefaultTheme;
   const brandedTheme = {
     ...navigationTheme,
@@ -24,6 +27,15 @@ export default function RootLayout() {
       border: colorScheme === 'dark' ? '#24324A' : Brand.border,
     },
   };
+
+  if (!isSignedIn) {
+    return (
+      <>
+        <LoginScreen onLogin={() => setIsSignedIn(true)} />
+        <StatusBar style="light" />
+      </>
+    );
+  }
 
   return (
     <ThemeProvider value={brandedTheme}>
