@@ -1,4 +1,5 @@
 import * as ImagePicker from "expo-image-picker";
+import { Accelerometer } from "expo-sensors";
 import Matter, { Bodies, Body, Engine, World } from "matter-js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -52,7 +53,15 @@ function createWalls(width: number, height: number) {
     { isStatic: true, label: "wall", friction: 0.4, restitution: 0.1 },
   );
 
-  return [ground, leftWall, rightWall];
+  const topWall = Bodies.rectangle(
+    width / 2,
+    -half + 1,
+    width + WALL_THICKNESS * 2,
+    WALL_THICKNESS,
+    { isStatic: true, label: "wall", friction: 0.9, restitution: 0.15 },
+  );
+
+  return [ground, leftWall, rightWall, topWall];
 }
 
 function PhysicsPhoto({ photo, frame }: { photo: PhotoItem; frame: number }) {
@@ -71,6 +80,7 @@ function PhysicsPhoto({ photo, frame }: { photo: PhotoItem; frame: number }) {
           transform: [{ rotate: `${angle}rad` }],
         },
       ]}
+      pointerEvents="none"
     >
       <Image source={{ uri: photo.uri }} style={styles.cardImage} />
     </View>
@@ -79,7 +89,7 @@ function PhysicsPhoto({ photo, frame }: { photo: PhotoItem; frame: number }) {
 
 export default function BagStackScreen() {
   const insets = useSafeAreaInsets();
-  const engineRef = useRef(Engine.create({ gravity: { x: 0, y: 1, scale: 0.001 } }));
+  const engineRef = useRef(Engine.create({ gravity: { x: 0, y: 0, scale: 0.002 } }));
   const wallsRef = useRef<Matter.Body[]>([]);
   const worldSizeRef = useRef({ width: 0, height: 0 });
 
@@ -127,6 +137,41 @@ export default function BagStackScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    Accelerometer.setUpdateInterval(50);
+
+    const GRAVITY_MULT = 5.5;
+    const GRAVITY_SCALE = 0.0028;
+    const FORCE_FACTOR = 0.0032;
+
+    const subscription = Accelerometer.addListener(({ x, y }: { x: number; y: number; z: number }) => {
+      const engine = engineRef.current;
+
+      // Map device axes to world gravity and clamp to reasonable limits
+      engine.world.gravity.x = Math.max(-5, Math.min(5, x * GRAVITY_MULT));
+      engine.world.gravity.y = Math.max(-5, Math.min(5, -y * GRAVITY_MULT));
+      engine.world.gravity.scale = GRAVITY_SCALE;
+
+      // Apply a small instantaneous force to photo bodies to make movement more dynamic
+      try {
+        const bodies = engine.world.bodies as Matter.Body[];
+        for (let i = 0; i < bodies.length; i++) {
+          const b = bodies[i];
+          if (b.label === "photo") {
+            Body.applyForce(b, b.position, {
+              x: x * FORCE_FACTOR * (b.mass ?? 1),
+              y: -y * FORCE_FACTOR * (b.mass ?? 1),
+            });
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+    });
+
+    return () => subscription.remove();
+  }, []);
+
   const spawnPhoto = useCallback(
     (uri: string) => {
       const { width, height } = worldSizeRef.current;
@@ -137,7 +182,7 @@ export default function BagStackScreen() {
       const spawnX =
         CARD_SIZE / 2 +
         Math.random() * Math.max(CARD_SIZE, width - CARD_SIZE);
-      const spawnY = -CARD_SIZE;
+      const spawnY = CARD_SIZE / 2 + WALL_THICKNESS / 2 + 8;
 
       const body = Bodies.rectangle(spawnX, spawnY, CARD_SIZE, CARD_SIZE, {
         label: "photo",
@@ -205,7 +250,10 @@ export default function BagStackScreen() {
         </View>
       </View>
 
-      <View style={styles.canvas} onLayout={onCanvasLayout}>
+      <View
+        style={styles.canvas}
+        onLayout={onCanvasLayout}
+      >
         {photos.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyTitle}>첫 번째 물건을 담아보세요</Text>
