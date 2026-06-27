@@ -1,7 +1,9 @@
 import { Image } from 'expo-image';
 import { useState } from 'react';
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -11,18 +13,102 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Brand } from '@/constants/theme';
+import { isSupabaseConfigured } from '@/services/supabase';
 
-type LoginScreenProps = {
-  onLogin: () => void;
+type AuthCredentials = {
+  email: string;
+  password: string;
 };
 
-export function LoginScreen({ onLogin }: LoginScreenProps) {
+type LoginScreenProps = {
+  onSignIn: (credentials: AuthCredentials) => Promise<void>;
+  onSignUp: (credentials: AuthCredentials) => Promise<void>;
+};
+
+type AuthMode = 'sign-in' | 'sign-up';
+
+const SIGNUP_COOLDOWN_SECONDS = 60;
+
+function isValidEmail(email: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+}
+
+function getAuthErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : '';
+  const lowerMessage = message.toLowerCase();
+
+  if (lowerMessage.includes('invalid login credentials')) {
+    return '로그인할 수 없습니다. 이메일 인증을 완료했는지, 이메일과 비밀번호가 맞는지 확인해 주세요.';
+  }
+
+  if (lowerMessage.includes('email not confirmed') || lowerMessage.includes('not confirmed')) {
+    return '이메일 인증이 아직 완료되지 않았습니다. 메일함에서 인증 링크를 눌러 주세요.';
+  }
+
+  if (lowerMessage.includes('rate limit') || lowerMessage.includes('too many')) {
+    return '인증 메일 발송 한도를 초과했습니다. 잠시 후 다시 시도해 주세요.';
+  }
+
+  return message || '로그인 처리 중 문제가 발생했습니다.';
+}
+
+export function LoginScreen({ onSignIn, onSignUp }: LoginScreenProps) {
   const insets = useSafeAreaInsets();
-  const [username, setUsername] = useState('');
+  const [mode, setMode] = useState<AuthMode>('sign-in');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [message, setMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [signupCooldownUntil, setSignupCooldownUntil] = useState(0);
+
+  const isSignUp = mode === 'sign-up';
+  const signupCooldownRemaining = Math.max(
+    0,
+    Math.ceil((signupCooldownUntil - Date.now()) / 1000),
+  );
+  const isSignupCoolingDown = isSignUp && signupCooldownRemaining > 0;
+  const canSubmit =
+    isSupabaseConfigured && isValidEmail(email) && password.length >= 6 && !isSignupCoolingDown;
+
+  const submit = async () => {
+    if (!canSubmit || isSubmitting) {
+      return;
+    }
+
+    setMessage('');
+    setErrorMessage('');
+    setIsSubmitting(true);
+
+    try {
+      const credentials = { email: email.trim(), password };
+
+      if (isSignUp) {
+        await onSignUp(credentials);
+        setSignupCooldownUntil(Date.now() + SIGNUP_COOLDOWN_SECONDS * 1000);
+        setMessage('인증 메일을 보냈습니다. 이메일 인증 후 로그인해 주세요.');
+        setMode('sign-in');
+      } else {
+        await onSignIn(credentials);
+      }
+    } catch (error) {
+      setErrorMessage(getAuthErrorMessage(error));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const toggleMode = () => {
+    setMessage('');
+    setErrorMessage('');
+    setMode((value) => (value === 'sign-in' ? 'sign-up' : 'sign-in'));
+  };
 
   return (
-    <KeyboardAvoidingView style={styles.screen} behavior="padding">
+    <KeyboardAvoidingView
+      style={styles.screen}
+      behavior={Platform.select({ ios: 'padding', default: undefined })}
+    >
       <View
         style={[
           styles.content,
@@ -39,10 +125,12 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
 
         <View style={styles.form}>
           <TextInput
-            value={username}
-            onChangeText={setUsername}
-            placeholder="아이디"
+            value={email}
+            onChangeText={setEmail}
+            placeholder="이메일"
             placeholderTextColor="rgba(255,255,255,0.64)"
+            keyboardType="email-address"
+            textContentType="emailAddress"
             autoCapitalize="none"
             autoCorrect={false}
             style={styles.input}
@@ -53,17 +141,42 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
             placeholder="비밀번호"
             placeholderTextColor="rgba(255,255,255,0.64)"
             secureTextEntry
+            textContentType={isSignUp ? 'newPassword' : 'password'}
             style={styles.input}
           />
-          <Pressable style={({ pressed }) => [styles.loginButton, pressed ? styles.pressed : undefined]} onPress={onLogin}>
-            <Text style={styles.loginText}>로그인</Text>
+          {!isSupabaseConfigured ? (
+            <Text style={styles.errorText}>Supabase 환경변수를 먼저 설정해 주세요.</Text>
+          ) : null}
+          {message ? <Text style={styles.noticeText}>{message}</Text> : null}
+          {isSignupCoolingDown ? (
+            <Text style={styles.noticeText}>
+              인증 메일은 {signupCooldownRemaining}초 후 다시 요청할 수 있습니다.
+            </Text>
+          ) : null}
+          {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+          <Pressable
+            style={({ pressed }) => [
+              styles.loginButton,
+              !canSubmit || isSubmitting ? styles.disabled : undefined,
+              pressed ? styles.pressed : undefined,
+            ]}
+            onPress={submit}
+            disabled={!canSubmit || isSubmitting}
+          >
+            {isSubmitting ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text style={styles.loginText}>{isSignUp ? '회원가입' : '로그인'}</Text>
+            )}
           </Pressable>
         </View>
 
         <View style={styles.footer}>
-          <Text style={styles.footerText}>계정이 없으신가요?</Text>
-          <Pressable>
-            <Text style={styles.signupText}>가입하기</Text>
+          <Text style={styles.footerText}>
+            {isSignUp ? '이미 계정이 있나요?' : '계정이 없나요?'}
+          </Text>
+          <Pressable onPress={toggleMode}>
+            <Text style={styles.signupText}>{isSignUp ? '로그인' : '가입하기'}</Text>
           </Pressable>
         </View>
       </View>
@@ -125,6 +238,21 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.72,
+  },
+  disabled: {
+    opacity: 0.52,
+  },
+  noticeText: {
+    color: '#D6FADF',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+  errorText: {
+    color: '#FFD9D6',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
   },
   footer: {
     flexDirection: 'row',

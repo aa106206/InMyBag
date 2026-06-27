@@ -32,7 +32,8 @@ export default function TabLayout() {
           fontSize: 12,
           fontWeight: '700',
         },
-      }}>
+      }}
+    >
       <Tabs.Screen
         name="bagstack"
         options={{
@@ -53,18 +54,14 @@ export default function TabLayout() {
         name="ranking"
         options={{
           title: '랭킹',
-          tabBarIcon: ({ color }) => (
-            <IconSymbol size={28} name="chart.bar.fill" color={color} />
-          ),
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="chart.bar.fill" color={color} />,
         }}
       />
       <Tabs.Screen
         name="settings"
         options={{
           title: '설정',
-          tabBarIcon: ({ color }) => (
-            <IconSymbol size={28} name="gearshape.fill" color={color} />
-          ),
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="gearshape.fill" color={color} />,
         }}
       />
     </Tabs>

@@ -1,20 +1,20 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
 import 'react-native-reanimated';
 
 import { LoginScreen } from '@/components/login-screen';
 import { Brand } from '@/constants/theme';
+import { AuthProvider, useAuth } from '@/hooks/use-auth';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export const unstable_settings = {
   anchor: '(tabs)',
 };
 
-export default function RootLayout() {
+function RootNavigator() {
   const colorScheme = useColorScheme();
-  const [isSignedIn, setIsSignedIn] = useState(false);
+  const { initializing, session, signIn, signUp } = useAuth();
   const navigationTheme = colorScheme === 'dark' ? DarkTheme : DefaultTheme;
   const brandedTheme = {
     ...navigationTheme,
@@ -28,10 +28,14 @@ export default function RootLayout() {
     },
   };
 
-  if (!isSignedIn) {
+  if (initializing) {
+    return <StatusBar style="auto" />;
+  }
+
+  if (!session) {
     return (
       <>
-        <LoginScreen onLogin={() => setIsSignedIn(true)} />
+        <LoginScreen onSignIn={signIn} onSignUp={signUp} />
         <StatusBar style="light" />
       </>
     );
@@ -45,5 +49,13 @@ export default function RootLayout() {
       </Stack>
       <StatusBar style="auto" />
     </ThemeProvider>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <AuthProvider>
+      <RootNavigator />
+    </AuthProvider>
   );
 }

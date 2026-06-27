@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Brand } from '@/constants/theme';
+import { useAuth } from '@/hooks/use-auth';
 
 type SettingsAction = {
   id: string;
@@ -10,7 +11,6 @@ type SettingsAction = {
 };
 
 const accountActions: SettingsAction[] = [
-  { id: 'username', label: '아이디 변경' },
   { id: 'password', label: '비밀번호 변경' },
   { id: 'email', label: '이메일 변경' },
 ];
@@ -21,12 +21,18 @@ const friendActions: SettingsAction[] = [
 ];
 
 const supportActions: SettingsAction[] = [
-  { id: 'guide', label: '이용안내' },
+  { id: 'guide', label: '이용 안내' },
   { id: 'contact', label: '문의하기' },
   { id: 'logout', label: '로그아웃' },
 ];
 
-function SettingsGroup({ actions }: { actions: SettingsAction[] }) {
+function SettingsGroup({
+  actions,
+  onActionPress,
+}: {
+  actions: SettingsAction[];
+  onActionPress?: (action: SettingsAction) => void;
+}) {
   return (
     <View style={styles.group}>
       {actions.map((action, index) => (
@@ -37,6 +43,7 @@ function SettingsGroup({ actions }: { actions: SettingsAction[] }) {
             index < actions.length - 1 ? styles.actionDivider : undefined,
             pressed ? styles.actionPressed : undefined,
           ]}
+          onPress={() => onActionPress?.(action)}
         >
           <Text style={[styles.actionText, action.id === 'logout' ? styles.logoutText : undefined]}>
             {action.label}
@@ -50,6 +57,14 @@ function SettingsGroup({ actions }: { actions: SettingsAction[] }) {
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
+  const { signOut, user } = useAuth();
+  const displayName = user?.email ?? 'InMyBag User';
+
+  const handleSupportAction = async (action: SettingsAction) => {
+    if (action.id === 'logout') {
+      await signOut();
+    }
+  };
 
   return (
     <ScrollView
@@ -70,12 +85,12 @@ export default function SettingsScreen() {
           style={styles.profileImage}
           contentFit="cover"
         />
-        <Text style={styles.profileName}>James</Text>
+        <Text style={styles.profileName}>{displayName}</Text>
       </View>
 
       <SettingsGroup actions={accountActions} />
       <SettingsGroup actions={friendActions} />
-      <SettingsGroup actions={supportActions} />
+      <SettingsGroup actions={supportActions} onActionPress={handleSupportAction} />
     </ScrollView>
   );
 }
@@ -104,8 +119,9 @@ const styles = StyleSheet.create({
   },
   profileName: {
     color: Brand.text,
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: '900',
+    textAlign: 'center',
   },
   group: {
     overflow: 'hidden',
