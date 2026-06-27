@@ -9,6 +9,7 @@ import {
   PanResponder,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -22,11 +23,309 @@ const H_PADDING = 16;
 const WALL_THICKNESS = 60;
 const FIXED_TIMESTEP = 1000 / 60;
 
+type HistoryPhoto = {
+  id: string;
+  uri: string;
+  left: `${number}%`;
+  top: `${number}%`;
+  size: number;
+  rotate: string;
+};
+
+type BagHistoryItem = {
+  id: string;
+  date: string;
+  photos: HistoryPhoto[];
+};
+
 type PhotoItem = {
   id: string;
   uri: string;
   body: Matter.Body;
 };
+
+const historyItems: BagHistoryItem[] = [
+  {
+    id: "2026-06-17",
+    date: "6/17",
+    photos: [
+      {
+        id: "camera",
+        uri: "https://images.unsplash.com/photo-1516035069371-29a1b244cc32?w=500",
+        left: "12%",
+        top: "16%",
+        size: 54,
+        rotate: "-8deg",
+      },
+      {
+        id: "coffee",
+        uri: "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=500",
+        left: "47%",
+        top: "31%",
+        size: 48,
+        rotate: "9deg",
+      },
+      {
+        id: "notebook",
+        uri: "https://images.unsplash.com/photo-1517842645767-c639042777db?w=500",
+        left: "27%",
+        top: "58%",
+        size: 58,
+        rotate: "4deg",
+      },
+    ],
+  },
+  {
+    id: "2026-06-05",
+    date: "6/5",
+    photos: [
+      {
+        id: "tablet",
+        uri: "https://images.unsplash.com/photo-1544244015-0df4b3ffc6b0?w=500",
+        left: "16%",
+        top: "18%",
+        size: 58,
+        rotate: "6deg",
+      },
+      {
+        id: "wallet",
+        uri: "https://images.unsplash.com/photo-1627123424574-724758594e93?w=500",
+        left: "50%",
+        top: "40%",
+        size: 48,
+        rotate: "-10deg",
+      },
+    ],
+  },
+  {
+    id: "2026-06-04",
+    date: "6/4",
+    photos: [
+      {
+        id: "shoes",
+        uri: "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=500",
+        left: "10%",
+        top: "24%",
+        size: 60,
+        rotate: "-7deg",
+      },
+      {
+        id: "bottle",
+        uri: "https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=500",
+        left: "54%",
+        top: "20%",
+        size: 46,
+        rotate: "8deg",
+      },
+      {
+        id: "watch",
+        uri: "https://images.unsplash.com/photo-1434493789847-2f02dc6ca35d?w=500",
+        left: "34%",
+        top: "58%",
+        size: 50,
+        rotate: "12deg",
+      },
+    ],
+  },
+  {
+    id: "2026-05-28",
+    date: "5/28",
+    photos: [
+      {
+        id: "headphones",
+        uri: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500",
+        left: "14%",
+        top: "18%",
+        size: 56,
+        rotate: "10deg",
+      },
+      {
+        id: "book",
+        uri: "https://images.unsplash.com/photo-1519682337058-a94d519337bc?w=500",
+        left: "45%",
+        top: "47%",
+        size: 58,
+        rotate: "-5deg",
+      },
+    ],
+  },
+  {
+    id: "2026-05-20",
+    date: "5/20",
+    photos: [
+      {
+        id: "sunglasses",
+        uri: "https://images.unsplash.com/photo-1511499767150-a48a237f0083?w=500",
+        left: "18%",
+        top: "24%",
+        size: 50,
+        rotate: "-12deg",
+      },
+      {
+        id: "pouch",
+        uri: "https://images.unsplash.com/photo-1590874103328-eac38a683ce7?w=500",
+        left: "50%",
+        top: "44%",
+        size: 58,
+        rotate: "7deg",
+      },
+    ],
+  },
+  {
+    id: "2026-05-11",
+    date: "5/11",
+    photos: [
+      {
+        id: "keys",
+        uri: "https://images.unsplash.com/photo-1582139329536-e7284fece509?w=500",
+        left: "16%",
+        top: "44%",
+        size: 48,
+        rotate: "9deg",
+      },
+      {
+        id: "earbuds",
+        uri: "https://images.unsplash.com/photo-1606220588913-b3aacb4d2f46?w=500",
+        left: "50%",
+        top: "22%",
+        size: 52,
+        rotate: "-7deg",
+      },
+    ],
+  },
+  {
+    id: "2026-05-03",
+    date: "5/3",
+    photos: [
+      {
+        id: "tablet",
+        uri: "https://images.unsplash.com/photo-1544244015-0df4b3ffc6b0?w=500",
+        left: "14%",
+        top: "18%",
+        size: 56,
+        rotate: "-6deg",
+      },
+      {
+        id: "coffee",
+        uri: "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=500",
+        left: "48%",
+        top: "40%",
+        size: 50,
+        rotate: "10deg",
+      },
+    ],
+  },
+  {
+    id: "2026-04-26",
+    date: "4/26",
+    photos: [
+      {
+        id: "notebook",
+        uri: "https://images.unsplash.com/photo-1517842645767-c639042777db?w=500",
+        left: "12%",
+        top: "24%",
+        size: 60,
+        rotate: "7deg",
+      },
+      {
+        id: "wallet",
+        uri: "https://images.unsplash.com/photo-1627123424574-724758594e93?w=500",
+        left: "52%",
+        top: "47%",
+        size: 48,
+        rotate: "-11deg",
+      },
+    ],
+  },
+  {
+    id: "2026-04-19",
+    date: "4/19",
+    photos: [
+      {
+        id: "camera",
+        uri: "https://images.unsplash.com/photo-1516035069371-29a1b244cc32?w=500",
+        left: "16%",
+        top: "18%",
+        size: 54,
+        rotate: "8deg",
+      },
+      {
+        id: "sunglasses",
+        uri: "https://images.unsplash.com/photo-1511499767150-a48a237f0083?w=500",
+        left: "48%",
+        top: "52%",
+        size: 52,
+        rotate: "-9deg",
+      },
+    ],
+  },
+  {
+    id: "2026-04-12",
+    date: "4/12",
+    photos: [
+      {
+        id: "shoes",
+        uri: "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=500",
+        left: "12%",
+        top: "42%",
+        size: 58,
+        rotate: "-8deg",
+      },
+      {
+        id: "bottle",
+        uri: "https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=500",
+        left: "54%",
+        top: "24%",
+        size: 48,
+        rotate: "7deg",
+      },
+    ],
+  },
+  {
+    id: "2026-04-04",
+    date: "4/4",
+    photos: [
+      {
+        id: "headphones",
+        uri: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500",
+        left: "15%",
+        top: "18%",
+        size: 58,
+        rotate: "11deg",
+      },
+      {
+        id: "keys",
+        uri: "https://images.unsplash.com/photo-1582139329536-e7284fece509?w=500",
+        left: "48%",
+        top: "50%",
+        size: 46,
+        rotate: "-5deg",
+      },
+    ],
+  },
+  {
+    id: "2026-03-29",
+    date: "3/29",
+    photos: [
+      {
+        id: "book",
+        uri: "https://images.unsplash.com/photo-1519682337058-a94d519337bc?w=500",
+        left: "13%",
+        top: "20%",
+        size: 58,
+        rotate: "-7deg",
+      },
+      {
+        id: "pouch",
+        uri: "https://images.unsplash.com/photo-1590874103328-eac38a683ce7?w=500",
+        left: "52%",
+        top: "44%",
+        size: 54,
+        rotate: "9deg",
+      },
+    ],
+  },
+];
 
 function createWalls(width: number, height: number) {
   const half = WALL_THICKNESS / 2;
@@ -128,6 +427,33 @@ function PhysicsPhoto({ photo, frame }: { photo: PhotoItem; frame: number }) {
   );
 }
 
+function HistoryCard({ item }: { item: BagHistoryItem }) {
+  return (
+    <View style={styles.historyCard}>
+      <Text style={styles.historyDate}>{item.date}</Text>
+      <View style={styles.historyPreview}>
+        {item.photos.map((photo) => (
+          <View
+            key={photo.id}
+            style={[
+              styles.historyPhoto,
+              {
+                left: photo.left,
+                top: photo.top,
+                width: photo.size,
+                height: photo.size,
+                transform: [{ rotate: photo.rotate }],
+              },
+            ]}
+          >
+            <Image source={{ uri: photo.uri }} style={styles.cardImage} />
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 export default function BagStackScreen() {
   const insets = useSafeAreaInsets();
   const engineRef = useRef(Engine.create({ gravity: { x: 0, y: 0, scale: 0.002 } }));
@@ -136,6 +462,7 @@ export default function BagStackScreen() {
 
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
   const [frame, setFrame] = useState(0);
+  const [showHistory, setShowHistory] = useState(false);
 
   const syncWalls = useCallback((width: number, height: number) => {
     if (width <= 0 || height <= 0) {
@@ -289,39 +616,60 @@ export default function BagStackScreen() {
       <View style={[styles.topBar, { paddingTop: insets.top + 12 }]}>
         <Image source={require("@/assets/images/InMyBag.png")} style={styles.logoImage} />
         <View style={styles.topCopy}>
-          <Text style={styles.topTitle}>Bag Stack</Text>
-          <Text style={styles.topSubtitle}>사진을 찍으면 가방 속 기록이 차곡차곡 쌓여요</Text>
+          <Text style={styles.topTitle}>{showHistory ? "가방 기록" : "내 가방"}</Text>
         </View>
+        <Pressable
+          style={[styles.modeToggle, showHistory ? styles.modeToggleActive : undefined]}
+          onPress={() => setShowHistory((value) => !value)}
+        >
+          <View style={[styles.toggleThumb, showHistory ? styles.toggleThumbActive : undefined]} />
+        </Pressable>
       </View>
 
-      <View
-        style={styles.canvas}
-        onLayout={onCanvasLayout}
-      >
-        {photos.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyTitle}>첫 번째 물건을 담아보세요</Text>
-            <Text style={styles.emptyText}>아래 버튼으로 사진을 찍으면 이 공간에 카드가 떨어집니다.</Text>
+      {showHistory ? (
+        <ScrollView
+          style={styles.history}
+          contentContainerStyle={styles.historyContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.historyGrid}>
+            {historyItems.map((item) => (
+              <HistoryCard key={item.id} item={item} />
+            ))}
           </View>
-        ) : null}
-        {photos.map((photo) => (
-          <PhysicsPhoto key={photo.id} photo={photo} frame={frame} />
-        ))}
-      </View>
+        </ScrollView>
+      ) : (
+        <>
+          <View
+            style={styles.canvas}
+            onLayout={onCanvasLayout}
+          >
+            {photos.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyTitle}>첫 번째 물건을 담아보세요</Text>
+                <Text style={styles.emptyText}>아래 버튼으로 사진을 찍으면 이 공간에 카드가 떨어집니다.</Text>
+              </View>
+            ) : null}
+            {photos.map((photo) => (
+              <PhysicsPhoto key={photo.id} photo={photo} frame={frame} />
+            ))}
+          </View>
 
-      <View
-        style={[
-          styles.bottomBar,
-          { paddingBottom: Math.max(insets.bottom, 12) },
-        ]}
-      >
-        <Pressable style={[styles.button, styles.primaryButton]} onPress={pickFromCamera}>
-          <Text style={styles.buttonText}>사진 찍기</Text>
-        </Pressable>
-        <Pressable style={[styles.button, styles.secondaryButton]} onPress={resetStack}>
-          <Text style={styles.secondaryButtonText}>리셋</Text>
-        </Pressable>
-      </View>
+          <View
+            style={[
+              styles.bottomBar,
+              { paddingBottom: 8 },
+            ]}
+          >
+            <Pressable style={[styles.button, styles.primaryButton]} onPress={pickFromCamera}>
+              <Text style={styles.buttonText}>사진 찍기</Text>
+            </Pressable>
+            <Pressable style={[styles.button, styles.secondaryButton]} onPress={resetStack}>
+              <Text style={styles.secondaryButtonText}>리셋</Text>
+            </Pressable>
+          </View>
+        </>
+      )}
     </View>
   );
 }
@@ -336,7 +684,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
     paddingHorizontal: H_PADDING,
-    paddingBottom: 14,
+    paddingBottom: 10,
     backgroundColor: Brand.surface,
     borderBottomWidth: 1,
     borderBottomColor: Brand.border,
@@ -354,11 +702,28 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: "900",
   },
-  topSubtitle: {
-    color: Brand.muted,
-    fontSize: 13,
-    lineHeight: 18,
-    marginTop: 2,
+  modeToggle: {
+    width: 54,
+    height: 30,
+    justifyContent: "center",
+    borderRadius: 999,
+    paddingHorizontal: 3,
+    backgroundColor: Brand.secondary,
+    borderWidth: 1,
+    borderColor: Brand.border,
+  },
+  modeToggleActive: {
+    backgroundColor: Brand.primary,
+    borderColor: Brand.primary,
+  },
+  toggleThumb: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: Brand.surface,
+  },
+  toggleThumbActive: {
+    alignSelf: "flex-end",
   },
   canvas: {
     flex: 1,
@@ -402,11 +767,55 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
+  history: {
+    flex: 1,
+    backgroundColor: Brand.secondary,
+  },
+  historyContent: {
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+  },
+  historyGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    rowGap: 10,
+  },
+  historyCard: {
+    width: "30.8%",
+    minHeight: 178,
+    overflow: "hidden",
+    borderRadius: 8,
+    backgroundColor: Brand.surface,
+    borderWidth: 1,
+    borderColor: Brand.border,
+  },
+  historyDate: {
+    paddingHorizontal: 10,
+    paddingTop: 10,
+    color: Brand.text,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  historyPreview: {
+    flex: 1,
+    marginTop: 6,
+    backgroundColor: Brand.secondary,
+    overflow: "hidden",
+  },
+  historyPhoto: {
+    position: "absolute",
+    overflow: "hidden",
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: Brand.surface,
+    backgroundColor: Brand.surface,
+  },
   bottomBar: {
     flexDirection: "row",
     gap: 12,
     paddingHorizontal: H_PADDING,
-    paddingTop: 12,
+    paddingTop: 8,
     backgroundColor: Brand.surface,
     borderTopWidth: 1,
     borderTopColor: Brand.border,
