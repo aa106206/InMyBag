@@ -727,10 +727,12 @@ function PhysicsPhoto({
   photo,
   frame,
   worldSize,
+  onDelete,
 }: {
   photo: PhotoItem;
   frame: number;
   worldSize: WorldSize;
+  onDelete: (photo: PhotoItem) => void;
 }) {
   void frame;
 
@@ -738,9 +740,20 @@ function PhysicsPhoto({
   const photoSizeRef = useRef<ObjectSize>({ width: photo.width, height: photo.height });
   const dragStartRef = useRef({ x: 0, y: 0 });
   const worldSizeRef = useRef(worldSize);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showDeleteBubble, setShowDeleteBubble] = useState(false);
   bodyRef.current = photo.body;
   photoSizeRef.current = { width: photo.width, height: photo.height };
   worldSizeRef.current = worldSize;
+
+  const clearLongPressTimer = useCallback(() => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => clearLongPressTimer, [clearLongPressTimer]);
 
   const panResponder = useRef(
     PanResponder.create({
@@ -750,11 +763,20 @@ function PhysicsPhoto({
       onPanResponderGrant: () => {
         const body = bodyRef.current;
         dragStartRef.current = { x: body.position.x, y: body.position.y };
+        clearLongPressTimer();
+        longPressTimerRef.current = setTimeout(() => {
+          setShowDeleteBubble(true);
+        }, 2000);
         Body.setStatic(body, true);
         Body.setVelocity(body, { x: 0, y: 0 });
         Body.setAngularVelocity(body, 0);
       },
       onPanResponderMove: (_, gestureState) => {
+        if (Math.abs(gestureState.dx) > 8 || Math.abs(gestureState.dy) > 8) {
+          clearLongPressTimer();
+          setShowDeleteBubble(false);
+        }
+
         const body = bodyRef.current;
         Body.setPosition(
           body,
@@ -769,6 +791,7 @@ function PhysicsPhoto({
         );
       },
       onPanResponderRelease: (_, gestureState) => {
+        clearLongPressTimer();
         const body = bodyRef.current;
         Body.setPosition(
           body,
@@ -781,6 +804,7 @@ function PhysicsPhoto({
         });
       },
       onPanResponderTerminate: () => {
+        clearLongPressTimer();
         const body = bodyRef.current;
         Body.setStatic(body, false);
         Body.setVelocity(body, { x: 0, y: 0 });
@@ -792,21 +816,39 @@ function PhysicsPhoto({
   const angle = photo.body.angle;
 
   return (
-    <View
-      style={[
-        styles.objectLayer,
-        {
-          left: x - photo.width / 2,
-          top: y - photo.height / 2,
-          width: photo.width,
-          height: photo.height,
-          transform: [{ rotate: `${angle}rad` }],
-        },
-      ]}
-      {...panResponder.panHandlers}
-    >
-      <Image source={{ uri: photo.uri }} style={styles.objectImage} resizeMode="contain" />
-    </View>
+    <>
+      {showDeleteBubble ? (
+        <Pressable
+          style={[
+            styles.deleteBubble,
+            {
+              left: x - 20,
+              top: Math.max(8, y - photo.height / 2 - 46),
+            },
+          ]}
+          hitSlop={10}
+          onPress={() => onDelete(photo)}
+        >
+          <Text style={styles.deleteBubbleText}>×</Text>
+          <View style={styles.deleteBubbleTail} />
+        </Pressable>
+      ) : null}
+      <View
+        style={[
+          styles.objectLayer,
+          {
+            left: x - photo.width / 2,
+            top: y - photo.height / 2,
+            width: photo.width,
+            height: photo.height,
+            transform: [{ rotate: `${angle}rad` }],
+          },
+        ]}
+        {...panResponder.panHandlers}
+      >
+        <Image source={{ uri: photo.uri }} style={styles.objectImage} resizeMode="contain" />
+      </View>
+    </>
   );
 }
 
@@ -973,6 +1015,11 @@ export default function BagStackScreen() {
     },
     [],
   );
+
+  const deletePhoto = useCallback((photoToDelete: PhotoItem) => {
+    World.remove(engineRef.current.world, photoToDelete.body);
+    setPhotos((current) => current.filter((photo) => photo.id !== photoToDelete.id));
+  }, []);
 
   const pickFromCamera = useCallback(async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
@@ -1156,6 +1203,7 @@ export default function BagStackScreen() {
                 photo={photo}
                 frame={frame}
                 worldSize={worldSizeRef.current}
+                onDelete={deletePhoto}
               />
             ))}
             <Pressable
@@ -1499,6 +1547,35 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
     backgroundColor: "transparent",
+  },
+  deleteBubble: {
+    position: "absolute",
+    zIndex: 20,
+    width: 40,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 17,
+    backgroundColor: Brand.text,
+    borderWidth: 2,
+    borderColor: Brand.surface,
+  },
+  deleteBubbleText: {
+    color: Brand.surface,
+    fontSize: 25,
+    lineHeight: 27,
+    fontWeight: "900",
+  },
+  deleteBubbleTail: {
+    position: "absolute",
+    bottom: -6,
+    width: 12,
+    height: 12,
+    borderRightWidth: 2,
+    borderBottomWidth: 2,
+    borderColor: Brand.surface,
+    backgroundColor: Brand.text,
+    transform: [{ rotate: "45deg" }],
   },
   history: {
     flex: 1,
