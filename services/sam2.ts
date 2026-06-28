@@ -3,16 +3,31 @@ import { Platform } from "react-native";
 
 type SegmentResponse = {
   image: string;
+  overlayImage?: string;
   score: number;
   bbox: [number, number, number, number];
+  promptBox?: [number, number, number, number];
   width: number;
   height: number;
   cutoutWidth: number;
   cutoutHeight: number;
 };
 
+type ImageSize = {
+  width: number;
+  height: number;
+};
+
+export type Sam2PromptBox = {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+};
+
 export type Sam2SegmentResult = {
   uri: string;
+  overlayUri?: string;
   usedSam2: boolean;
   score?: number;
   width: number;
@@ -41,13 +56,35 @@ async function imageUriToBlob(uri: string): Promise<Blob> {
   return response.blob();
 }
 
-export async function segmentImageWithSam2(uri: string): Promise<Sam2SegmentResult> {
+function buildSegmentUrl(box?: Sam2PromptBox, imageSize?: ImageSize) {
+  const url = new URL(`${SAM2_SERVER_URL}/segment`);
+
+  if (box) {
+    url.searchParams.set("box_x0", String(Math.round(box.x0)));
+    url.searchParams.set("box_y0", String(Math.round(box.y0)));
+    url.searchParams.set("box_x1", String(Math.round(box.x1)));
+    url.searchParams.set("box_y1", String(Math.round(box.y1)));
+  }
+
+  if (imageSize) {
+    url.searchParams.set("image_width", String(Math.round(imageSize.width)));
+    url.searchParams.set("image_height", String(Math.round(imageSize.height)));
+  }
+
+  return url.toString();
+}
+
+export async function segmentImageWithSam2(
+  uri: string,
+  box?: Sam2PromptBox,
+  imageSize?: ImageSize,
+): Promise<Sam2SegmentResult> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 45000);
 
   try {
     const imageBlob = await imageUriToBlob(uri);
-    const response = await fetch(`${SAM2_SERVER_URL}/segment`, {
+    const response = await fetch(buildSegmentUrl(box, imageSize), {
       method: "POST",
       headers: {
         "Content-Type": imageBlob.type || "application/octet-stream",
@@ -63,6 +100,7 @@ export async function segmentImageWithSam2(uri: string): Promise<Sam2SegmentResu
     const data = (await response.json()) as SegmentResponse;
     return {
       uri: data.image,
+      overlayUri: data.overlayImage,
       usedSam2: true,
       score: data.score,
       width: data.cutoutWidth,

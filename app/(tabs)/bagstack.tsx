@@ -6,6 +6,7 @@ import {
   Alert,
   Image,
   LayoutChangeEvent,
+  Modal,
   PanResponder,
   Platform,
   Pressable,
@@ -17,7 +18,12 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Brand } from "@/constants/theme";
-import { getSam2ServerUrl, segmentImageWithSam2 } from "@/services/sam2";
+import {
+  getSam2ServerUrl,
+  Sam2PromptBox,
+  Sam2SegmentResult,
+  segmentImageWithSam2,
+} from "@/services/sam2";
 
 const DEFAULT_OBJECT_SIZE = 92;
 const MAX_OBJECT_SIZE = 132;
@@ -53,6 +59,17 @@ type PhotoItem = ObjectSize & {
 };
 
 type WorldSize = {
+  width: number;
+  height: number;
+};
+
+type PendingPhoto = ObjectSize & {
+  uri: string;
+};
+
+type Rect = {
+  x: number;
+  y: number;
   width: number;
   height: number;
 };
@@ -413,6 +430,299 @@ function clampPhotoPosition(
   };
 }
 
+function getDefaultPromptBox(width: number, height: number): Sam2PromptBox {
+  return {
+    x0: width * 0.18,
+    y0: height * 0.18,
+    x1: width * 0.82,
+    y1: height * 0.82,
+  };
+}
+
+function clampPromptBox(box: Sam2PromptBox, imageSize: ObjectSize): Sam2PromptBox {
+  const minSize = Math.min(imageSize.width, imageSize.height) * 0.12;
+  const boxWidth = Math.max(minSize, box.x1 - box.x0);
+  const boxHeight = Math.max(minSize, box.y1 - box.y0);
+  const x0 = Math.max(0, Math.min(imageSize.width - boxWidth, box.x0));
+  const y0 = Math.max(0, Math.min(imageSize.height - boxHeight, box.y0));
+
+  return {
+    x0,
+    y0,
+    x1: Math.min(imageSize.width, x0 + boxWidth),
+    y1: Math.min(imageSize.height, y0 + boxHeight),
+  };
+}
+
+function scalePromptBox(box: Sam2PromptBox, imageSize: ObjectSize, scale: number): Sam2PromptBox {
+  const centerX = (box.x0 + box.x1) / 2;
+  const centerY = (box.y0 + box.y1) / 2;
+  const nextWidth = (box.x1 - box.x0) * scale;
+  const nextHeight = (box.y1 - box.y0) * scale;
+
+  return clampPromptBox(
+    {
+      x0: centerX - nextWidth / 2,
+      y0: centerY - nextHeight / 2,
+      x1: centerX + nextWidth / 2,
+      y1: centerY + nextHeight / 2,
+    },
+    imageSize,
+  );
+}
+
+function getAspectFitFrame(container: ObjectSize, image: ObjectSize): Rect {
+  if (container.width <= 0 || container.height <= 0 || image.width <= 0 || image.height <= 0) {
+    return { x: 0, y: 0, width: 0, height: 0 };
+  }
+
+  const scale = Math.min(container.width / image.width, container.height / image.height);
+  const width = image.width * scale;
+  const height = image.height * scale;
+
+  return {
+    x: (container.width - width) / 2,
+    y: (container.height - height) / 2,
+    width,
+    height,
+  };
+}
+
+function getOverlayBox(box: Sam2PromptBox, imageSize: ObjectSize, imageFrame: Rect): Rect {
+  const scaleX = imageFrame.width / imageSize.width;
+  const scaleY = imageFrame.height / imageSize.height;
+
+  return {
+    x: imageFrame.x + box.x0 * scaleX,
+    y: imageFrame.y + box.y0 * scaleY,
+    width: (box.x1 - box.x0) * scaleX,
+    height: (box.y1 - box.y0) * scaleY,
+  };
+}
+
+function SegmentPreviewModal({
+  photo,
+  promptBox,
+  segmentedResult,
+  isSegmenting,
+  onMoveBox,
+  onScaleBox,
+  onCancel,
+  onConfirm,
+  onRetune,
+  onAccept,
+}: {
+  photo: PendingPhoto | null;
+  promptBox: Sam2PromptBox | null;
+  segmentedResult: Sam2SegmentResult | null;
+  isSegmenting: boolean;
+  onMoveBox: (dx: number, dy: number) => void;
+  onScaleBox: (scale: number) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+  onRetune: () => void;
+  onAccept: () => void;
+}) {
+  const [previewSize, setPreviewSize] = useState<ObjectSize>({ width: 0, height: 0 });
+  const dragStartRef = useRef({ x: 0, y: 0 });
+  const photoRef = useRef<PendingPhoto | null>(null);
+  const imageFrameRef = useRef<Rect>({ x: 0, y: 0, width: 0, height: 0 });
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        dragStartRef.current = { x: 0, y: 0 };
+      },
+      onPanResponderMove: (_, gestureState) => {
+        const currentPhoto = photoRef.current;
+        const currentImageFrame = imageFrameRef.current;
+
+        if (!currentPhoto || currentImageFrame.width <= 0 || currentImageFrame.height <= 0) {
+          return;
+        }
+
+        const displayDx = gestureState.dx - dragStartRef.current.x;
+        const displayDy = gestureState.dy - dragStartRef.current.y;
+        const imageDx = displayDx * (currentPhoto.width / currentImageFrame.width);
+        const imageDy = displayDy * (currentPhoto.height / currentImageFrame.height);
+
+        onMoveBox(imageDx, imageDy);
+        dragStartRef.current = { x: gestureState.dx, y: gestureState.dy };
+      },
+    }),
+  ).current;
+
+  if (!photo || !promptBox) {
+    return null;
+  }
+
+  const imageFrame = getAspectFitFrame(previewSize, photo);
+  const overlayBox = getOverlayBox(promptBox, photo, imageFrame);
+  photoRef.current = photo;
+  imageFrameRef.current = imageFrame;
+  const hasSegmentedResult = Boolean(segmentedResult);
+
+  return (
+    <Modal visible animationType="slide" presentationStyle="fullScreen">
+      <View style={styles.previewScreen}>
+        <View style={styles.previewHeader}>
+          <Text style={styles.previewTitle}>
+            {hasSegmentedResult ? "Segment 결과 확인" : "Segment 영역 확인"}
+          </Text>
+          <Text style={styles.previewSubtitle}>
+            {hasSegmentedResult
+              ? "분리된 객체가 괜찮으면 가방에 추가해요."
+              : "박스를 물건에 맞춘 뒤 객체만 분리해요."}
+          </Text>
+        </View>
+
+        {segmentedResult ? (
+          <View style={styles.resultStage}>
+            {segmentedResult.overlayUri ? (
+              <View style={styles.resultOverlayCard}>
+                <Text style={styles.resultCardTitle}>Segment 표시</Text>
+                <View style={styles.segmentedOverlayFrame}>
+                  <Image
+                    source={{ uri: segmentedResult.overlayUri }}
+                    style={styles.segmentedOverlayImage}
+                    resizeMode="contain"
+                  />
+                </View>
+              </View>
+            ) : null}
+
+            <View style={styles.resultPreviewCard}>
+              <Text style={styles.resultCardTitle}>분리된 객체</Text>
+              <View style={styles.segmentedObjectFrame}>
+                <Image
+                  source={{ uri: segmentedResult.uri }}
+                  style={styles.segmentedObjectImage}
+                  resizeMode="contain"
+                />
+              </View>
+              {typeof segmentedResult.score === "number" ? (
+                <Text style={styles.resultScore}>
+                  SAM2 score {segmentedResult.score.toFixed(3)}
+                </Text>
+              ) : null}
+            </View>
+
+            <View style={styles.resultOriginalCard}>
+              <Text style={styles.resultCardTitle}>사용한 bbox</Text>
+              <View style={styles.resultOriginalImageWrap}>
+                <Image
+                  source={{ uri: photo.uri }}
+                  style={styles.resultOriginalImage}
+                  resizeMode="contain"
+                />
+              </View>
+            </View>
+          </View>
+        ) : (
+          <View
+            style={styles.previewStage}
+            onLayout={(event) => {
+              const { width, height } = event.nativeEvent.layout;
+              setPreviewSize({ width, height });
+            }}
+          >
+            <Image source={{ uri: photo.uri }} style={styles.previewImage} resizeMode="contain" />
+            {imageFrame.width > 0 ? (
+              <View
+                style={[
+                  styles.promptBox,
+                  {
+                    left: overlayBox.x,
+                    top: overlayBox.y,
+                    width: overlayBox.width,
+                    height: overlayBox.height,
+                  },
+                ]}
+                {...panResponder.panHandlers}
+              >
+                <View style={styles.promptLabel}>
+                  <Text style={styles.promptLabelText}>이 영역을 Segment</Text>
+                </View>
+                <View style={[styles.promptCorner, styles.promptCornerTopLeft]} />
+                <View style={[styles.promptCorner, styles.promptCornerTopRight]} />
+                <View style={[styles.promptCorner, styles.promptCornerBottomLeft]} />
+                <View style={[styles.promptCorner, styles.promptCornerBottomRight]} />
+              </View>
+            ) : null}
+          </View>
+        )}
+
+        <View style={styles.previewControls}>
+          {!segmentedResult ? (
+            <View style={styles.sizeControls}>
+              <Pressable
+                style={[styles.sizeButton, isSegmenting && styles.disabledButton]}
+                onPress={() => onScaleBox(0.88)}
+                disabled={isSegmenting}
+              >
+                <Text style={styles.sizeButtonText}>박스 작게</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.sizeButton, isSegmenting && styles.disabledButton]}
+                onPress={() => onScaleBox(1.12)}
+                disabled={isSegmenting}
+              >
+                <Text style={styles.sizeButtonText}>박스 크게</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
+          <View style={styles.previewActions}>
+            {segmentedResult ? (
+              <>
+                <Pressable
+                  style={[styles.previewButton, styles.previewSecondaryButton]}
+                  onPress={onRetune}
+                  disabled={isSegmenting}
+                >
+                  <Text style={styles.previewSecondaryText}>박스 다시 조정</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.previewButton, styles.previewPrimaryButton]}
+                  onPress={onAccept}
+                  disabled={isSegmenting}
+                >
+                  <Text style={styles.previewPrimaryText}>가방에 추가</Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Pressable
+                  style={[styles.previewButton, styles.previewSecondaryButton]}
+                  onPress={onCancel}
+                  disabled={isSegmenting}
+                >
+                  <Text style={styles.previewSecondaryText}>다시 찍기</Text>
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.previewButton,
+                    styles.previewPrimaryButton,
+                    isSegmenting && styles.disabledButton,
+                  ]}
+                  onPress={onConfirm}
+                  disabled={isSegmenting}
+                >
+                  <Text style={styles.previewPrimaryText}>
+                    {isSegmenting ? "분리 중..." : "이 박스로 Segment"}
+                  </Text>
+                </Pressable>
+              </>
+            )}
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function PhysicsPhoto({
   photo,
   frame,
@@ -537,6 +847,9 @@ export default function BagStackScreen() {
   const [frame, setFrame] = useState(0);
   const [showHistory, setShowHistory] = useState(false);
   const [isSegmenting, setIsSegmenting] = useState(false);
+  const [pendingPhoto, setPendingPhoto] = useState<PendingPhoto | null>(null);
+  const [promptBox, setPromptBox] = useState<Sam2PromptBox | null>(null);
+  const [segmentedPreview, setSegmentedPreview] = useState<Sam2SegmentResult | null>(null);
 
   const syncWalls = useCallback((width: number, height: number) => {
     if (width <= 0 || height <= 0) {
@@ -671,31 +984,131 @@ export default function BagStackScreen() {
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ["images"],
       quality: 0.85,
-      allowsEditing: true,
-      aspect: [1, 1],
+      allowsEditing: false,
     });
 
     if (!result.canceled && result.assets[0]?.uri) {
-      const photoUri = result.assets[0].uri;
-      setIsSegmenting(true);
+      const asset = result.assets[0];
+      const width = asset.width || 1024;
+      const height = asset.height || 1024;
+      const nextPhoto = { uri: asset.uri, width, height };
 
-      try {
-        const segmented = await segmentImageWithSam2(photoUri);
-        spawnPhoto(segmented.uri, { width: segmented.width, height: segmented.height });
-      } catch (error) {
-        console.warn("SAM2 segmentation failed. Skipping rectangular original image.", error);
-        Alert.alert(
-          "SAM2 연결 실패",
-          `객체 분리에 실패해서 사진을 추가하지 않았어요.\n서버 주소: ${getSam2ServerUrl()}`,
-        ); 
-      } finally {
-        setIsSegmenting(false);
-      }
+      setPendingPhoto(nextPhoto);
+      setPromptBox(getDefaultPromptBox(width, height));
+      setSegmentedPreview(null);
     }
-  }, [spawnPhoto]);
+  }, []);
+
+  const movePromptBox = useCallback(
+    (dx: number, dy: number) => {
+      if (!pendingPhoto || !promptBox) {
+        return;
+      }
+
+      setPromptBox((current) => {
+        if (!current) {
+          return current;
+        }
+
+        return clampPromptBox(
+          {
+            x0: current.x0 + dx,
+            y0: current.y0 + dy,
+            x1: current.x1 + dx,
+            y1: current.y1 + dy,
+          },
+          pendingPhoto,
+        );
+      });
+    },
+    [pendingPhoto, promptBox],
+  );
+
+  const scaleCurrentPromptBox = useCallback(
+    (scale: number) => {
+      if (!pendingPhoto) {
+        return;
+      }
+
+      setPromptBox((current) => {
+        if (!current) {
+          return current;
+        }
+
+        return scalePromptBox(current, pendingPhoto, scale);
+      });
+    },
+    [pendingPhoto],
+  );
+
+  const cancelSegmentPreview = useCallback(() => {
+    if (isSegmenting) {
+      return;
+    }
+
+    setPendingPhoto(null);
+    setPromptBox(null);
+    setSegmentedPreview(null);
+  }, [isSegmenting]);
+
+  const confirmSegmentPreview = useCallback(async () => {
+    if (!pendingPhoto || !promptBox) {
+      return;
+    }
+
+    setIsSegmenting(true);
+
+    try {
+      const segmented = await segmentImageWithSam2(pendingPhoto.uri, promptBox, pendingPhoto);
+      setSegmentedPreview(segmented);
+    } catch (error) {
+      console.warn("SAM2 segmentation failed. Skipping rectangular original image.", error);
+      Alert.alert(
+        "SAM2 연결 실패",
+        `객체 분리에 실패해서 사진을 추가하지 않았어요.\n서버 주소: ${getSam2ServerUrl()}`,
+      );
+    } finally {
+      setIsSegmenting(false);
+    }
+  }, [pendingPhoto, promptBox]);
+
+  const retuneSegmentBox = useCallback(() => {
+    if (isSegmenting) {
+      return;
+    }
+
+    setSegmentedPreview(null);
+  }, [isSegmenting]);
+
+  const acceptSegmentedPreview = useCallback(() => {
+    if (!segmentedPreview) {
+      return;
+    }
+
+    spawnPhoto(segmentedPreview.uri, {
+      width: segmentedPreview.width,
+      height: segmentedPreview.height,
+    });
+    setPendingPhoto(null);
+    setPromptBox(null);
+    setSegmentedPreview(null);
+  }, [segmentedPreview, spawnPhoto]);
 
   return (
     <View style={styles.screen}>
+      <SegmentPreviewModal
+        photo={pendingPhoto}
+        promptBox={promptBox}
+        segmentedResult={segmentedPreview}
+        isSegmenting={isSegmenting}
+        onMoveBox={movePromptBox}
+        onScaleBox={scaleCurrentPromptBox}
+        onCancel={cancelSegmentPreview}
+        onConfirm={confirmSegmentPreview}
+        onRetune={retuneSegmentBox}
+        onAccept={acceptSegmentedPreview}
+      />
+
       <View style={[styles.topBar, { paddingTop: insets.top + 12 }]}>
         <Image source={require("@/assets/images/SnapBag.png")} style={styles.logoImage} />
         <View style={styles.topCopy}>
@@ -851,6 +1264,226 @@ const styles = StyleSheet.create({
   segmentingText: {
     color: Brand.text,
     fontSize: 13,
+    fontWeight: "900",
+  },
+  previewScreen: {
+    flex: 1,
+    backgroundColor: "#050505",
+  },
+  previewHeader: {
+    paddingHorizontal: 18,
+    paddingTop: 56,
+    paddingBottom: 14,
+    backgroundColor: "#101014",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.12)",
+  },
+  previewTitle: {
+    color: "#FFFFFF",
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  previewSubtitle: {
+    color: "rgba(255,255,255,0.72)",
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 4,
+  },
+  previewStage: {
+    flex: 1,
+    overflow: "hidden",
+    backgroundColor: "#000000",
+  },
+  previewImage: {
+    width: "100%",
+    height: "100%",
+  },
+  resultStage: {
+    flex: 1,
+    gap: 12,
+    padding: 16,
+    backgroundColor: "#000000",
+  },
+  resultOverlayCard: {
+    flex: 1.15,
+    minHeight: 260,
+    overflow: "hidden",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    backgroundColor: "#16161A",
+  },
+  resultPreviewCard: {
+    flex: 0.85,
+    minHeight: 190,
+    overflow: "hidden",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    backgroundColor: "#16161A",
+  },
+  resultOriginalCard: {
+    height: 118,
+    overflow: "hidden",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    backgroundColor: "#16161A",
+  },
+  resultCardTitle: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "900",
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 8,
+  },
+  segmentedOverlayFrame: {
+    flex: 1,
+    marginHorizontal: 12,
+    marginBottom: 12,
+    overflow: "hidden",
+    borderRadius: 8,
+    backgroundColor: "#000000",
+  },
+  segmentedOverlayImage: {
+    width: "100%",
+    height: "100%",
+  },
+  segmentedObjectFrame: {
+    flex: 1,
+    marginHorizontal: 12,
+    marginBottom: 10,
+    overflow: "hidden",
+    borderRadius: 8,
+    backgroundColor: "#EDF1F5",
+  },
+  segmentedObjectImage: {
+    width: "100%",
+    height: "100%",
+  },
+  resultScore: {
+    color: "rgba(255,255,255,0.72)",
+    fontSize: 12,
+    fontWeight: "700",
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+  },
+  resultOriginalImageWrap: {
+    flex: 1,
+    marginHorizontal: 12,
+    marginBottom: 12,
+    overflow: "hidden",
+    borderRadius: 8,
+    backgroundColor: "#000000",
+  },
+  resultOriginalImage: {
+    width: "100%",
+    height: "100%",
+  },
+  promptBox: {
+    position: "absolute",
+    borderWidth: 2,
+    borderColor: Brand.primary,
+    backgroundColor: "rgba(255, 158, 187, 0.14)",
+  },
+  promptLabel: {
+    position: "absolute",
+    left: 8,
+    top: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: Brand.primary,
+  },
+  promptLabelText: {
+    color: Brand.text,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  promptCorner: {
+    position: "absolute",
+    width: 18,
+    height: 18,
+    borderColor: "#FFFFFF",
+  },
+  promptCornerTopLeft: {
+    left: -2,
+    top: -2,
+    borderLeftWidth: 3,
+    borderTopWidth: 3,
+  },
+  promptCornerTopRight: {
+    right: -2,
+    top: -2,
+    borderRightWidth: 3,
+    borderTopWidth: 3,
+  },
+  promptCornerBottomLeft: {
+    left: -2,
+    bottom: -2,
+    borderLeftWidth: 3,
+    borderBottomWidth: 3,
+  },
+  promptCornerBottomRight: {
+    right: -2,
+    bottom: -2,
+    borderRightWidth: 3,
+    borderBottomWidth: 3,
+  },
+  previewControls: {
+    paddingHorizontal: 18,
+    paddingTop: 12,
+    paddingBottom: 24,
+    backgroundColor: "#101014",
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.12)",
+  },
+  sizeControls: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 12,
+  },
+  sizeButton: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 11,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
+  sizeButtonText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  previewActions: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  previewButton: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 15,
+    borderRadius: 8,
+  },
+  previewPrimaryButton: {
+    backgroundColor: Brand.primary,
+  },
+  previewSecondaryButton: {
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.22)",
+  },
+  previewPrimaryText: {
+    color: Brand.text,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  previewSecondaryText: {
+    color: "#FFFFFF",
+    fontSize: 14,
     fontWeight: "900",
   },
   objectLayer: {
