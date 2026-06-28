@@ -1,123 +1,126 @@
 import { Image } from 'expo-image';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Brand } from '@/constants/theme';
 
-type RankingItem = {
+type RankingUser = {
   id: string;
   rank: number;
-  name: string;
-  owner: string;
+  user: string;
+  streak: number;
   score: number;
-  image: string;
+  avatar: string;
 };
 
-const rankingItems: RankingItem[] = [
+const todayMission = '오늘의 미션: 책상 위에서 가장 자주 쓰는 물건을 찍어보세요.';
+
+const rankingUsers: RankingUser[] = [
   {
-    id: 'camera',
+    id: 'yuna',
     rank: 1,
-    name: '필름 카메라',
-    owner: 'yuna',
-    score: 98242,
-    image: 'https://images.unsplash.com/photo-1516035069371-29a1b244cc32?w=600',
+    user: 'yuna',
+    streak: 18,
+    score: 18,
+    avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400',
   },
   {
-    id: 'headphones',
+    id: 'james',
     rank: 2,
-    name: '무선 헤드폰',
-    owner: 'james',
-    score: 85410,
-    image: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=600',
+    user: 'james',
+    streak: 14,
+    score: 14,
+    avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400',
   },
   {
-    id: 'sneakers',
+    id: 'hyunbin',
     rank: 3,
-    name: '러닝 스니커즈',
-    owner: 'hyunbin',
-    score: 76335,
-    image: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=600',
+    user: 'hyunbin',
+    streak: 11,
+    score: 11,
+    avatar: 'https://images.unsplash.com/photo-1527980965255-d3b416303d12?w=400',
   },
   {
-    id: 'tablet',
+    id: 'dongjun',
     rank: 4,
-    name: '태블릿',
-    owner: 'dongjun',
-    score: 62102,
-    image: 'https://images.unsplash.com/photo-1544244015-0df4b3ffc6b0?w=600',
+    user: 'dongjun',
+    streak: 9,
+    score: 9,
+    avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400',
   },
   {
-    id: 'notebook',
+    id: 'mina',
     rank: 5,
-    name: '그리드 노트',
-    owner: 'james',
-    score: 58920,
-    image: 'https://images.unsplash.com/photo-1517842645767-c639042777db?w=600',
+    user: 'mina',
+    streak: 7,
+    score: 7,
+    avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400',
   },
   {
-    id: 'sunglasses',
+    id: 'seo',
     rank: 6,
-    name: '선글라스',
-    owner: 'yuna',
-    score: 44188,
-    image: 'https://images.unsplash.com/photo-1511499767150-a48a237f0083?w=600',
+    user: 'seo',
+    streak: 5,
+    score: 5,
+    avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=400',
   },
   {
-    id: 'bottle',
+    id: 'arin',
     rank: 7,
-    name: '스틸 보틀',
-    owner: 'hyunbin',
-    score: 39210,
-    image: 'https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=600',
+    user: 'arin',
+    streak: 4,
+    score: 4,
+    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400',
   },
   {
-    id: 'wallet',
+    id: 'joon',
     rank: 8,
-    name: '카드 지갑',
-    owner: 'dongjun',
-    score: 31802,
-    image: 'https://images.unsplash.com/photo-1627123424574-724758594e93?w=600',
+    user: 'joon',
+    streak: 3,
+    score: 3,
+    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400',
   },
   {
-    id: 'coffee',
+    id: 'nari',
     rank: 9,
-    name: '텀블러 커피',
-    owner: 'james',
-    score: 27614,
-    image: 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=600',
+    user: 'nari',
+    streak: 2,
+    score: 2,
+    avatar: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=400',
   },
   {
-    id: 'keys',
+    id: 'tae',
     rank: 10,
-    name: '키링 세트',
-    owner: 'yuna',
-    score: 22477,
-    image: 'https://images.unsplash.com/photo-1582139329536-e7284fece509?w=600',
+    user: 'tae',
+    streak: 1,
+    score: 1,
+    avatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=400',
   },
 ];
 
-const podiumItems = [rankingItems[1], rankingItems[0], rankingItems[2]];
-const listItems = rankingItems.slice(3);
+const podiumItems = [rankingUsers[1], rankingUsers[0], rankingUsers[2]];
+const listItems = rankingUsers.slice(3);
 
 function formatScore(score: number) {
-  return score.toLocaleString('ko-KR');
+  return `${score}점`;
 }
 
-function PodiumItem({ item }: { item: RankingItem }) {
+function PodiumItem({ item }: { item: RankingUser }) {
   const isFirst = item.rank === 1;
 
   return (
     <View style={[styles.podiumItem, isFirst ? styles.firstPodiumItem : undefined]}>
       <View style={[styles.podiumImageWrap, isFirst ? styles.firstPodiumImageWrap : undefined]}>
-        <Image source={{ uri: item.image }} style={styles.podiumImage} contentFit="cover" />
+        <Image source={{ uri: item.avatar }} style={styles.podiumImage} contentFit="cover" />
         <View style={[styles.rankBadge, isFirst ? styles.firstRankBadge : undefined]}>
           <Text style={styles.rankBadgeText}>{item.rank}</Text>
         </View>
       </View>
       <Text style={styles.podiumName} numberOfLines={1}>
-        {item.name}
+        @{item.user}
       </Text>
-      <Text style={styles.podiumOwner}>@{item.owner}</Text>
+      <Text style={styles.podiumOwner}>{item.streak}일 연속</Text>
       <View style={[styles.podiumBlock, isFirst ? styles.firstPodiumBlock : undefined]}>
         <Text style={styles.podiumScore}>{formatScore(item.score)}</Text>
       </View>
@@ -125,14 +128,14 @@ function PodiumItem({ item }: { item: RankingItem }) {
   );
 }
 
-function RankingRow({ item }: { item: RankingItem }) {
+function RankingRow({ item }: { item: RankingUser }) {
   return (
     <View style={styles.rankRow}>
       <Text style={styles.rankNumber}>{item.rank}</Text>
-      <Image source={{ uri: item.image }} style={styles.rowImage} contentFit="cover" />
+      <Image source={{ uri: item.avatar }} style={styles.rowImage} contentFit="cover" />
       <View style={styles.rowCopy}>
-        <Text style={styles.rowName}>{item.name}</Text>
-        <Text style={styles.rowOwner}>@{item.owner}</Text>
+        <Text style={styles.rowName}>@{item.user}</Text>
+        <Text style={styles.rowOwner}>{item.streak}일 연속 미션 완료</Text>
       </View>
       <Text style={styles.rowScore}>{formatScore(item.score)}</Text>
     </View>
@@ -141,6 +144,7 @@ function RankingRow({ item }: { item: RankingItem }) {
 
 export default function RankingScreen() {
   const insets = useSafeAreaInsets();
+  const [showMission, setShowMission] = useState(false);
 
   return (
     <ScrollView
@@ -156,8 +160,25 @@ export default function RankingScreen() {
       showsVerticalScrollIndicator={false}
     >
       <View style={styles.header}>
-        <Text style={styles.title}>랭킹</Text>
-        <Text style={styles.subtitle}>지금 친구들 가방에서 많이 보이는 물건</Text>
+        <View style={styles.headerRow}>
+          <View style={styles.headerCopy}>
+            <Text style={styles.title}>랭킹</Text>
+            <Text style={styles.subtitle}>오늘의 미션을 이어간 친구들</Text>
+          </View>
+          <Pressable
+            style={styles.missionButton}
+            onPress={() => setShowMission((value) => !value)}
+          >
+            <Text style={styles.missionButtonText}>!</Text>
+          </Pressable>
+        </View>
+        {showMission ? (
+          <View style={styles.missionBubble}>
+            <View style={styles.missionBubbleTail} />
+            <Text style={styles.missionText}>{todayMission}</Text>
+            <Text style={styles.missionRule}>하루 성공하면 +1점, 하루 쉬면 streak는 다시 0점부터 시작해요.</Text>
+          </View>
+        ) : null}
       </View>
 
       <View style={styles.podium}>
@@ -185,6 +206,15 @@ const styles = StyleSheet.create({
     gap: 18,
   },
   header: {
+    gap: 10,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  headerCopy: {
+    flex: 1,
     gap: 4,
   },
   title: {
@@ -196,6 +226,54 @@ const styles = StyleSheet.create({
     color: Brand.muted,
     fontSize: 14,
     fontWeight: '700',
+  },
+  missionButton: {
+    width: 34,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 17,
+    backgroundColor: Brand.surface,
+    borderWidth: 1,
+    borderColor: Brand.border,
+  },
+  missionButtonText: {
+    color: Brand.text,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  missionBubble: {
+    position: 'relative',
+    padding: 14,
+    borderRadius: 8,
+    backgroundColor: Brand.surface,
+    borderWidth: 1,
+    borderColor: Brand.border,
+  },
+  missionBubbleTail: {
+    position: 'absolute',
+    right: 16,
+    top: -7,
+    width: 14,
+    height: 14,
+    backgroundColor: Brand.surface,
+    borderLeftWidth: 1,
+    borderTopWidth: 1,
+    borderColor: Brand.border,
+    transform: [{ rotate: '45deg' }],
+  },
+  missionText: {
+    color: Brand.text,
+    fontSize: 15,
+    fontWeight: '900',
+    lineHeight: 21,
+  },
+  missionRule: {
+    marginTop: 6,
+    color: Brand.muted,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
   },
   podium: {
     flexDirection: 'row',
@@ -281,7 +359,7 @@ const styles = StyleSheet.create({
     borderColor: Brand.primary,
   },
   podiumScore: {
-    color: Brand.primary,
+    color: Brand.text,
     fontSize: 13,
     fontWeight: '900',
   },

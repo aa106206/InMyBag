@@ -12,6 +12,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  type ImageSourcePropType,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -24,7 +25,7 @@ const FIXED_TIMESTEP = 1000 / 60;
 
 type BagPhotoSeed = {
   id: string;
-  uri: string;
+  source: ImageSourcePropType;
   x: number;
   y: number;
   size: number;
@@ -65,7 +66,7 @@ const mockBags: FriendBag[] = [
     photos: [
       {
         id: 'laptop',
-        uri: 'https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=700',
+        source: require('@/assets/images/feed-objects/laptop.png'),
         x: 0.28,
         y: 0.22,
         size: 122,
@@ -73,7 +74,7 @@ const mockBags: FriendBag[] = [
       },
       {
         id: 'coffee',
-        uri: 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=700',
+        source: require('@/assets/images/feed-objects/coffee.png'),
         x: 0.66,
         y: 0.21,
         size: 102,
@@ -81,7 +82,7 @@ const mockBags: FriendBag[] = [
       },
       {
         id: 'notebook',
-        uri: 'https://images.unsplash.com/photo-1517842645767-c639042777db?w=700',
+        source: require('@/assets/images/feed-objects/notebook.png'),
         x: 0.39,
         y: 0.58,
         size: 132,
@@ -89,7 +90,7 @@ const mockBags: FriendBag[] = [
       },
       {
         id: 'earbuds',
-        uri: 'https://images.unsplash.com/photo-1606220588913-b3aacb4d2f46?w=700',
+        source: require('@/assets/images/feed-objects/earbuds.png'),
         x: 0.69,
         y: 0.64,
         size: 96,
@@ -104,7 +105,7 @@ const mockBags: FriendBag[] = [
     photos: [
       {
         id: 'shoes',
-        uri: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=700',
+        source: require('@/assets/images/feed-objects/shoes.png'),
         x: 0.3,
         y: 0.28,
         size: 126,
@@ -112,7 +113,7 @@ const mockBags: FriendBag[] = [
       },
       {
         id: 'bottle',
-        uri: 'https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=700',
+        source: require('@/assets/images/feed-objects/bottle.png'),
         x: 0.65,
         y: 0.29,
         size: 94,
@@ -120,7 +121,7 @@ const mockBags: FriendBag[] = [
       },
       {
         id: 'watch',
-        uri: 'https://images.unsplash.com/photo-1434493789847-2f02dc6ca35d?w=700',
+        source: require('@/assets/images/feed-objects/watch.png'),
         x: 0.35,
         y: 0.66,
         size: 102,
@@ -128,7 +129,7 @@ const mockBags: FriendBag[] = [
       },
       {
         id: 'towel',
-        uri: 'https://images.unsplash.com/photo-1615484477778-ca3b77940c25?w=700',
+        source: require('@/assets/images/feed-objects/towel.png'),
         x: 0.65,
         y: 0.63,
         size: 122,
@@ -143,7 +144,7 @@ const mockBags: FriendBag[] = [
     photos: [
       {
         id: 'tablet',
-        uri: 'https://images.unsplash.com/photo-1544244015-0df4b3ffc6b0?w=700',
+        source: require('@/assets/images/feed-objects/tablet.png'),
         x: 0.29,
         y: 0.23,
         size: 122,
@@ -151,7 +152,7 @@ const mockBags: FriendBag[] = [
       },
       {
         id: 'book',
-        uri: 'https://images.unsplash.com/photo-1519682337058-a94d519337bc?w=700',
+        source: require('@/assets/images/feed-objects/book.png'),
         x: 0.64,
         y: 0.26,
         size: 116,
@@ -159,7 +160,7 @@ const mockBags: FriendBag[] = [
       },
       {
         id: 'pen',
-        uri: 'https://images.unsplash.com/photo-1583485088034-697b5bc54ccd?w=700',
+        source: require('@/assets/images/feed-objects/pen.png'),
         x: 0.34,
         y: 0.65,
         size: 102,
@@ -167,7 +168,7 @@ const mockBags: FriendBag[] = [
       },
       {
         id: 'wallet',
-        uri: 'https://images.unsplash.com/photo-1627123424574-724758594e93?w=700',
+        source: require('@/assets/images/feed-objects/wallet.png'),
         x: 0.68,
         y: 0.63,
         size: 104,
@@ -182,7 +183,7 @@ const mockBags: FriendBag[] = [
     photos: [
       {
         id: 'camera',
-        uri: 'https://images.unsplash.com/photo-1516035069371-29a1b244cc32?w=700',
+        source: require('@/assets/images/feed-objects/camera.png'),
         x: 0.3,
         y: 0.25,
         size: 124,
@@ -190,7 +191,7 @@ const mockBags: FriendBag[] = [
       },
       {
         id: 'sunglasses',
-        uri: 'https://images.unsplash.com/photo-1511499767150-a48a237f0083?w=700',
+        source: require('@/assets/images/feed-objects/sunglasses.png'),
         x: 0.67,
         y: 0.24,
         size: 104,
@@ -198,7 +199,7 @@ const mockBags: FriendBag[] = [
       },
       {
         id: 'keys',
-        uri: 'https://images.unsplash.com/photo-1582139329536-e7284fece509?w=700',
+        source: require('@/assets/images/feed-objects/keys.png'),
         x: 0.33,
         y: 0.64,
         size: 96,
@@ -206,7 +207,7 @@ const mockBags: FriendBag[] = [
       },
       {
         id: 'pouch',
-        uri: 'https://images.unsplash.com/photo-1590874103328-eac38a683ce7?w=700',
+        source: require('@/assets/images/feed-objects/pouch.png'),
         x: 0.65,
         y: 0.62,
         size: 126,
@@ -406,7 +407,7 @@ function PhysicsPhoto({
       ]}
       {...panResponder.panHandlers}
     >
-      <Image source={{ uri: photo.uri }} style={styles.photo} />
+      <Image source={photo.source} style={styles.photo} />
     </View>
   );
 }
@@ -504,7 +505,7 @@ function FriendHistoryCard({ item }: { item: FriendHistoryItem }) {
               },
             ]}
           >
-            <Image source={{ uri: photo.uri }} style={styles.photo} />
+            <Image source={photo.source} style={styles.photo} />
           </View>
         ))}
       </View>
@@ -892,11 +893,8 @@ const styles = StyleSheet.create({
   },
   historyPhoto: {
     position: 'absolute',
-    overflow: 'hidden',
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: Brand.surface,
-    backgroundColor: Brand.surface,
+    overflow: 'visible',
+    backgroundColor: 'transparent',
   },
   canvas: {
     flex: 1,
@@ -905,11 +903,12 @@ const styles = StyleSheet.create({
   },
   photoCard: {
     position: 'absolute',
-    overflow: 'hidden',
-    backgroundColor: Brand.surface,
+    overflow: 'visible',
+    backgroundColor: 'transparent',
   },
   photo: {
     width: '100%',
     height: '100%',
+    resizeMode: 'contain',
   },
 });
