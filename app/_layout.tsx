@@ -24,7 +24,7 @@ function RootNavigator() {
       background: colorScheme === 'dark' ? Brand.text : Brand.secondary,
       card: colorScheme === 'dark' ? Brand.text : Brand.surface,
       text: colorScheme === 'dark' ? Brand.secondary : Brand.text,
-      border: colorScheme === 'dark' ? '#3A4352' : Brand.border,
+      border: colorScheme === 'dark' ? Brand.muted : Brand.border,
     },
   };
 
