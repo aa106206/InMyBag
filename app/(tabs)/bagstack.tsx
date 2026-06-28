@@ -693,15 +693,6 @@ export default function BagStackScreen() {
       }
     }
   }, [spawnPhoto]);
-  
-
-  const resetStack = useCallback(() => {
-    const world = engineRef.current.world;
-    setPhotos((current) => {
-      current.forEach((photo) => World.remove(world, photo.body));
-      return [];
-    });
-  }, []);
 
   return (
     <View style={styles.screen}>
@@ -709,13 +700,6 @@ export default function BagStackScreen() {
         <Image source={require("@/assets/images/SnapBag.png")} style={styles.logoImage} />
         <View style={styles.topCopy}>
           <Text style={styles.topTitle}>{showHistory ? "가방 기록" : "내 가방"}</Text>
-          {!showHistory ? (
-            <Text style={styles.topSubtitle}>
-              {isSegmenting
-                ? "SAM2가 사진 속 물건을 분리하고 있어요"
-                : "사진을 찍으면 SAM2로 물건만 분리해 쌓아요"}
-            </Text>
-          ) : null}
         </View>
         <Pressable
           style={[styles.modeToggle, showHistory ? styles.modeToggleActive : undefined]}
@@ -744,7 +728,7 @@ export default function BagStackScreen() {
               <View style={styles.emptyState}>
                 <Text style={styles.emptyTitle}>첫 번째 물건을 담아보세요</Text>
                 <Text style={styles.emptyText}>
-                  아래 버튼으로 사진을 찍으면 SAM2가 물건만 잘라 이 공간에 떨어뜨립니다.
+                  셔터 버튼으로 사진을 찍으면 SAM2가 물건만 잘라 이 공간에 떨어뜨립니다.
                 </Text>
               </View>
             ) : null}
@@ -761,18 +745,12 @@ export default function BagStackScreen() {
                 worldSize={worldSizeRef.current}
               />
             ))}
-          </View>
-
-          <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
             <Pressable
-              style={[styles.button, styles.primaryButton, isSegmenting && styles.disabledButton]}
+              style={[styles.shutterButton, isSegmenting && styles.disabledButton]}
               onPress={pickFromCamera}
               disabled={isSegmenting}
             >
-              <Text style={styles.buttonText}>{isSegmenting ? "분석 중" : "사진 찍기"}</Text>
-            </Pressable>
-            <Pressable style={[styles.button, styles.secondaryButton]} onPress={resetStack}>
-              <Text style={styles.secondaryButtonText}>리셋</Text>
+              <View style={styles.shutterInner} />
             </Pressable>
           </View>
         </>
@@ -808,12 +786,6 @@ const styles = StyleSheet.create({
     color: Brand.text,
     fontSize: 22,
     fontWeight: "900",
-  },
-  topSubtitle: {
-    color: Brand.muted,
-    fontSize: 13,
-    lineHeight: 18,
-    marginTop: 2,
   },
   modeToggle: {
     width: 54,
@@ -943,40 +915,28 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
-  bottomBar: {
-    flexDirection: "row",
-    gap: 12,
-    paddingHorizontal: H_PADDING,
-    paddingTop: 8,
-    backgroundColor: Brand.surface,
-    borderTopWidth: 1,
-    borderTopColor: Brand.border,
-  },
-  button: {
-    flex: 1,
-    paddingVertical: 14,
-    alignItems: "center",
-    borderRadius: 8,
-  },
-  primaryButton: {
-    backgroundColor: Brand.primary,
-  },
   disabledButton: {
     opacity: 0.64,
   },
-  secondaryButton: {
-    backgroundColor: Brand.secondary,
-    borderWidth: 1,
+  shutterButton: {
+    position: "absolute",
+    bottom: 22,
+    alignSelf: "center",
+    width: 78,
+    height: 78,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 39,
+    backgroundColor: Brand.surface,
+    borderWidth: 2,
     borderColor: Brand.border,
   },
-  buttonText: {
-    color: Brand.text,
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  secondaryButtonText: {
-    color: Brand.text,
-    fontSize: 15,
-    fontWeight: "800",
+  shutterInner: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: Brand.surface,
+    borderWidth: 1,
+    borderColor: Brand.border,
   },
 });
