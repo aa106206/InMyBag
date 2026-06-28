@@ -1,4 +1,5 @@
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -109,7 +110,11 @@ export function LoginScreen({ onSignIn, onSignUp }: LoginScreenProps) {
       style={styles.screen}
       behavior={Platform.select({ ios: 'padding', default: undefined })}
     >
-      <View
+      <LinearGradient
+        colors={[Brand.secondary, Brand.primarySoft, Brand.primary, Brand.lavender]}
+        locations={[0, 0.42, 0.74, 1]}
+        start={{ x: 0.05, y: 0 }}
+        end={{ x: 1, y: 1 }}
         style={[
           styles.content,
           {
@@ -119,8 +124,8 @@ export function LoginScreen({ onSignIn, onSignUp }: LoginScreenProps) {
         ]}
       >
         <View style={styles.brandArea}>
-          <Image source={require('@/assets/images/InMyBag.png')} style={styles.logo} />
-          <Text style={styles.brandName}>InMyBag</Text>
+          <Image source={require('@/assets/images/SnapBag.png')} style={styles.logo} />
+          <Text style={styles.brandName}>SnapBag</Text>
         </View>
 
         <View style={styles.form}>
@@ -179,7 +184,7 @@ export function LoginScreen({ onSignIn, onSignUp }: LoginScreenProps) {
             <Text style={styles.signupText}>{isSignUp ? '로그인' : '가입하기'}</Text>
           </Pressable>
         </View>
-      </View>
+      </LinearGradient>
     </KeyboardAvoidingView>
   );
 }

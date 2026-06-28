@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "InMyBag",
-    "slug": "InMyBag",
+    "name": "SnapBag",
+    "slug": "SnapBag",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "inmybag",
+    "scheme": "snapbag",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
@@ -34,8 +34,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "InMyBag가 Bag Stack에 사진을 추가하려면 앨범 접근 권한이 필요합니다.",
-          "cameraPermission": "InMyBag가 Bag Stack에서 사진을 찍으려면 카메라 접근 권한이 필요합니다."
+          "photosPermission": "SnapBag가 내 가방에 사진을 추가하려면 앨범 접근 권한이 필요합니다.",
+          "cameraPermission": "SnapBag가 내 가방에서 사진을 찍으려면 카메라 접근 권한이 필요합니다."
         }
       ],
       [

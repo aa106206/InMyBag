@@ -706,7 +706,7 @@ export default function BagStackScreen() {
   return (
     <View style={styles.screen}>
       <View style={[styles.topBar, { paddingTop: insets.top + 12 }]}>
-        <Image source={require("@/assets/images/InMyBag.png")} style={styles.logoImage} />
+        <Image source={require("@/assets/images/SnapBag.png")} style={styles.logoImage} />
         <View style={styles.topCopy}>
           <Text style={styles.topTitle}>{showHistory ? "가방 기록" : "내 가방"}</Text>
           {!showHistory ? (
