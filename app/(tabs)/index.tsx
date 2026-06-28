@@ -1,6 +1,6 @@
 import { Accelerometer } from 'expo-sensors';
 import Matter, { Bodies, Body, Engine, World } from 'matter-js';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   Image,
@@ -58,7 +58,7 @@ type FeedPage =
   | { id: 'friend-list'; type: 'friend-list' }
   | { id: string; type: 'bag'; bag: FriendBag };
 
-const mockBags: FriendBag[] = [
+const friendBags: FriendBag[] = [
   {
     id: 'james',
     user: 'james',
@@ -416,12 +416,14 @@ function FriendListPage({
   friends,
   searchText,
   onSearchTextChange,
+  onFriendPress,
   width,
   topInset,
 }: {
   friends: FriendBag[];
   searchText: string;
   onSearchTextChange: (value: string) => void;
+  onFriendPress: (friendId: string) => void;
   width: number;
   topInset: number;
 }) {
@@ -456,10 +458,20 @@ function FriendListPage({
         showsVerticalScrollIndicator={false}
       >
         {filteredFriends.map((friend) => (
-          <View key={friend.id} style={styles.friendRow}>
+          <Pressable
+            key={friend.id}
+            style={({ pressed }) => [
+              styles.friendRow,
+              pressed ? styles.friendRowPressed : undefined,
+            ]}
+            onPress={() => onFriendPress(friend.id)}
+          >
             <Image source={{ uri: friend.avatar }} style={styles.friendAvatar} />
-            <Text style={styles.friendUser}>@{friend.user}</Text>
-          </View>
+            <View style={styles.friendInfo}>
+              <Text style={styles.friendUser}>@{friend.user}</Text>
+              <Text style={styles.friendMeta}>{friend.photos.length}개 객체</Text>
+            </View>
+          </Pressable>
         ))}
         {filteredFriends.length === 0 ? (
           <Text style={styles.emptyFriendText}>검색 결과가 없습니다.</Text>
@@ -704,16 +716,36 @@ function FriendBagPage({
 export default function HomeScreen() {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const feedListRef = useRef<FlatList<FeedPage>>(null);
   const [isPhotoDragging, setIsPhotoDragging] = useState(false);
   const [friendSearchText, setFriendSearchText] = useState('');
-  const feedPages: FeedPage[] = [
-    { id: 'friend-list', type: 'friend-list' },
-    ...mockBags.map((bag) => ({ id: bag.id, type: 'bag' as const, bag })),
-  ];
+  const feedPages: FeedPage[] = useMemo(
+    () => [
+      { id: 'friend-list', type: 'friend-list' },
+      ...friendBags.map((bag) => ({ id: bag.id, type: 'bag' as const, bag })),
+    ],
+    [],
+  );
+
+  const openFriendBag = useCallback(
+    (friendId: string) => {
+      const pageIndex = feedPages.findIndex((page) => page.id === friendId);
+      if (pageIndex < 0) {
+        return;
+      }
+
+      feedListRef.current?.scrollToIndex({
+        index: pageIndex,
+        animated: true,
+      });
+    },
+    [feedPages],
+  );
 
   return (
     <View style={styles.container}>
       <FlatList
+        ref={feedListRef}
         data={feedPages}
         horizontal
         pagingEnabled
@@ -722,12 +754,18 @@ export default function HomeScreen() {
         contentInsetAdjustmentBehavior="automatic"
         keyExtractor={(item) => item.id}
         showsHorizontalScrollIndicator={false}
+        getItemLayout={(_, index) => ({
+          length: width,
+          offset: width * index,
+          index,
+        })}
         renderItem={({ item }) =>
           item.type === 'friend-list' ? (
             <FriendListPage
-              friends={mockBags}
+              friends={friendBags}
               searchText={friendSearchText}
               onSearchTextChange={setFriendSearchText}
+              onFriendPress={openFriendBag}
               width={width}
               topInset={insets.top}
             />
@@ -790,16 +828,29 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Brand.border,
   },
+  friendRowPressed: {
+    opacity: 0.72,
+    transform: [{ scale: 0.99 }],
+  },
   friendAvatar: {
     width: 46,
     height: 46,
     borderRadius: 23,
     backgroundColor: Brand.secondary,
   },
+  friendInfo: {
+    flex: 1,
+    gap: 2,
+  },
   friendUser: {
     color: Brand.text,
     fontSize: 17,
     fontWeight: '900',
+  },
+  friendMeta: {
+    color: Brand.muted,
+    fontSize: 12,
+    fontWeight: '800',
   },
   emptyFriendText: {
     paddingTop: 18,
