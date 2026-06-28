@@ -58,7 +58,7 @@ function SettingsGroup({
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { signOut, user } = useAuth();
-  const displayName = user?.email ?? 'InMyBag User';
+  const displayName = user?.email ?? 'SnapBag User';
 
   const handleSupportAction = async (action: SettingsAction) => {
     if (action.id === 'logout') {
