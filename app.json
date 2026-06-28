@@ -25,6 +25,10 @@
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
+    "extra": {
+      "supabaseUrl": "https://qqtyungcnkueahubwfyt.supabase.co",
+      "supabaseAnonKey": "sb_publishable_w-22IZ-HNGf5djjSIiUt2A_izznTP2P"
+    },
     "plugins": [
       "expo-router",
       [
