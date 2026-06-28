@@ -111,8 +111,8 @@ export function LoginScreen({ onSignIn, onSignUp }: LoginScreenProps) {
       behavior={Platform.select({ ios: 'padding', default: undefined })}
     >
       <LinearGradient
-        colors={[Brand.secondary, Brand.primarySoft, Brand.primary, Brand.lavender]}
-        locations={[0, 0.42, 0.74, 1]}
+        colors={[Brand.secondary, Brand.primarySoft, Brand.lavender, Brand.text]}
+        locations={[0, 0.38, 0.72, 1]}
         start={{ x: 0.05, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={[
