@@ -766,7 +766,7 @@ function PhysicsPhoto({
         clearLongPressTimer();
         longPressTimerRef.current = setTimeout(() => {
           setShowDeleteBubble(true);
-        }, 2000);
+        }, 1000);
         Body.setStatic(body, true);
         Body.setVelocity(body, { x: 0, y: 0 });
         Body.setAngularVelocity(body, 0);

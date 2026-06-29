@@ -36,6 +36,11 @@ type PhysicsPhotoItem = BagPhotoSeed & {
   body: Matter.Body;
 };
 
+type PhotoLikeState = {
+  count: number;
+  liked: boolean;
+};
+
 type WorldSize = {
   width: number;
   height: number;
@@ -57,6 +62,25 @@ type FriendHistoryItem = {
 type FeedPage =
   | { id: 'friend-list'; type: 'friend-list' }
   | { id: string; type: 'bag'; bag: FriendBag };
+
+const initialLikeCounts: Record<string, number> = {
+  'james-laptop': 21,
+  'james-coffee': 18,
+  'james-notebook': 14,
+  'james-earbuds': 22,
+  'hyunbin-shoes': 15,
+  'hyunbin-bottle': 9,
+  'hyunbin-watch': 17,
+  'hyunbin-towel': 11,
+  'dongjun-tablet': 24,
+  'dongjun-book': 16,
+  'dongjun-pen': 8,
+  'dongjun-wallet': 19,
+  'yuna-camera': 20,
+  'yuna-sunglasses': 13,
+  'yuna-keys': 10,
+  'yuna-pouch': 23,
+};
 
 const friendBags: FriendBag[] = [
   {
@@ -286,11 +310,15 @@ function PhysicsPhoto({
   frame,
   worldSize,
   onPhotoDragChange,
+  likeState,
+  onToggleLike,
 }: {
   photo: PhysicsPhotoItem;
   frame: number;
   worldSize: WorldSize;
   onPhotoDragChange: (isDragging: boolean) => void;
+  likeState: PhotoLikeState;
+  onToggleLike: () => void;
 }) {
   void frame;
 
@@ -299,7 +327,9 @@ function PhysicsPhoto({
   const worldSizeRef = useRef(worldSize);
   const isDraggingRef = useRef(false);
   const dragFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onPhotoDragChangeRef = useRef(onPhotoDragChange);
+  const [showLikeBubble, setShowLikeBubble] = useState(false);
   bodyRef.current = photo.body;
   worldSizeRef.current = worldSize;
   onPhotoDragChangeRef.current = onPhotoDragChange;
@@ -311,9 +341,17 @@ function PhysicsPhoto({
     }
   };
 
+  const clearLongPressTimer = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
   const endPhotoDrag = (velocity = { x: 0, y: 0 }) => {
     const body = bodyRef.current;
     clearDragFallback();
+    clearLongPressTimer();
     isDraggingRef.current = false;
     onPhotoDragChangeRef.current(false);
     Body.setPosition(
@@ -336,6 +374,7 @@ function PhysicsPhoto({
   useEffect(
     () => () => {
       clearDragFallback();
+      clearLongPressTimer();
       if (isDraggingRef.current) {
         const body = bodyRef.current;
         isDraggingRef.current = false;
@@ -358,6 +397,11 @@ function PhysicsPhoto({
         const body = bodyRef.current;
         isDraggingRef.current = true;
         onPhotoDragChangeRef.current(true);
+        clearLongPressTimer();
+        setShowLikeBubble(false);
+        longPressTimerRef.current = setTimeout(() => {
+          setShowLikeBubble(true);
+        }, 1000);
         scheduleDragFallback();
         dragStartRef.current = { x: body.position.x, y: body.position.y };
         Body.setStatic(body, true);
@@ -367,6 +411,10 @@ function PhysicsPhoto({
       onPanResponderMove: (_, gestureState) => {
         const body = bodyRef.current;
         scheduleDragFallback();
+        if (Math.abs(gestureState.dx) > 8 || Math.abs(gestureState.dy) > 8) {
+          clearLongPressTimer();
+          setShowLikeBubble(false);
+        }
         Body.setPosition(
           body,
           clampPhotoPosition(
@@ -394,21 +442,42 @@ function PhysicsPhoto({
   const { x, y } = photo.body.position;
 
   return (
-    <View
-      style={[
-        styles.photoCard,
-        {
-          left: x - photo.size / 2,
-          top: y - photo.size / 2,
-          width: photo.size,
-          height: photo.size,
-          transform: [{ rotate: `${photo.body.angle}rad` }],
-        },
-      ]}
-      {...panResponder.panHandlers}
-    >
-      <Image source={photo.source} style={styles.photo} />
-    </View>
+    <>
+      {showLikeBubble ? (
+        <Pressable
+          style={[
+            styles.likeBubble,
+            {
+              left: x - 44,
+              top: Math.max(8, y - photo.size / 2 - 54),
+            },
+          ]}
+          hitSlop={10}
+          onPress={onToggleLike}
+        >
+          <Text style={[styles.likeHeart, likeState.liked ? styles.likeHeartActive : undefined]}>
+            {likeState.liked ? '♥' : '♡'}
+          </Text>
+          <Text style={styles.likeCount}>{likeState.count}</Text>
+          <View style={styles.likeBubbleTail} />
+        </Pressable>
+      ) : null}
+      <View
+        style={[
+          styles.photoCard,
+          {
+            left: x - photo.size / 2,
+            top: y - photo.size / 2,
+            width: photo.size,
+            height: photo.size,
+            transform: [{ rotate: `${photo.body.angle}rad` }],
+          },
+        ]}
+        {...panResponder.panHandlers}
+      >
+        <Image source={photo.source} style={styles.photo} />
+      </View>
+    </>
   );
 }
 
@@ -530,11 +599,15 @@ function FriendBagPage({
   width,
   topInset,
   onPhotoDragChange,
+  photoLikes,
+  onTogglePhotoLike,
 }: {
   bag: FriendBag;
   width: number;
   topInset: number;
   onPhotoDragChange: (isDragging: boolean) => void;
+  photoLikes: Record<string, PhotoLikeState>;
+  onTogglePhotoLike: (photoKey: string) => void;
 }) {
   const engineRef = useRef(Engine.create({ gravity: { x: 0, y: 0, scale: 0.002 } }));
   const wallsRef = useRef<Matter.Body[]>([]);
@@ -699,13 +772,25 @@ function FriendBagPage({
       ) : (
         <View style={styles.canvas} onLayout={onCanvasLayout}>
           {photos.map((photo) => (
-            <PhysicsPhoto
-              key={photo.id}
-              photo={photo}
-              frame={frame}
-              worldSize={worldSizeRef.current}
-              onPhotoDragChange={onPhotoDragChange}
-            />
+            (() => {
+              const photoKey = `${bag.id}-${photo.id}`;
+              const likeState = photoLikes[photoKey] ?? {
+                count: initialLikeCounts[photoKey] ?? 0,
+                liked: false,
+              };
+
+              return (
+                <PhysicsPhoto
+                  key={photo.id}
+                  photo={photo}
+                  frame={frame}
+                  worldSize={worldSizeRef.current}
+                  onPhotoDragChange={onPhotoDragChange}
+                  likeState={likeState}
+                  onToggleLike={() => onTogglePhotoLike(photoKey)}
+                />
+              );
+            })()
           ))}
         </View>
       )}
@@ -719,6 +804,7 @@ export default function HomeScreen() {
   const feedListRef = useRef<FlatList<FeedPage>>(null);
   const [isPhotoDragging, setIsPhotoDragging] = useState(false);
   const [friendSearchText, setFriendSearchText] = useState('');
+  const [photoLikes, setPhotoLikes] = useState<Record<string, PhotoLikeState>>({});
   const feedPages: FeedPage[] = useMemo(
     () => [
       { id: 'friend-list', type: 'friend-list' },
@@ -741,6 +827,24 @@ export default function HomeScreen() {
     },
     [feedPages],
   );
+
+  const togglePhotoLike = useCallback((photoKey: string) => {
+    setPhotoLikes((current) => {
+      const previous = current[photoKey] ?? {
+        count: initialLikeCounts[photoKey] ?? 0,
+        liked: false,
+      };
+      const liked = !previous.liked;
+
+      return {
+        ...current,
+        [photoKey]: {
+          liked,
+          count: previous.count + (liked ? 1 : -1),
+        },
+      };
+    });
+  }, []);
 
   return (
     <View style={styles.container}>
@@ -775,6 +879,8 @@ export default function HomeScreen() {
               width={width}
               topInset={insets.top}
               onPhotoDragChange={setIsPhotoDragging}
+              photoLikes={photoLikes}
+              onTogglePhotoLike={togglePhotoLike}
             />
           )
         }
@@ -956,6 +1062,47 @@ const styles = StyleSheet.create({
     position: 'absolute',
     overflow: 'visible',
     backgroundColor: 'transparent',
+  },
+  likeBubble: {
+    position: 'absolute',
+    zIndex: 20,
+    minWidth: 88,
+    height: 42,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 13,
+    borderRadius: 21,
+    backgroundColor: Brand.surface,
+    borderWidth: 2,
+    borderColor: Brand.border,
+  },
+  likeHeart: {
+    color: Brand.text,
+    fontSize: 27,
+    lineHeight: 31,
+    fontWeight: '900',
+  },
+  likeHeartActive: {
+    color: '#EF4444',
+  },
+  likeCount: {
+    color: Brand.text,
+    fontSize: 19,
+    fontWeight: '900',
+    fontVariant: ['tabular-nums'],
+  },
+  likeBubbleTail: {
+    position: 'absolute',
+    bottom: -7,
+    width: 14,
+    height: 14,
+    borderRightWidth: 2,
+    borderBottomWidth: 2,
+    borderColor: Brand.border,
+    backgroundColor: Brand.surface,
+    transform: [{ rotate: '45deg' }],
   },
   photo: {
     width: '100%',
