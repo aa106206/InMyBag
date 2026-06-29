@@ -1,8 +1,7 @@
 import { Accelerometer } from 'expo-sensors';
 import Matter, { Bodies, Body, Engine, World } from 'matter-js';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  FlatList,
   Image,
   LayoutChangeEvent,
   PanResponder,
@@ -11,9 +10,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   type ImageSourcePropType,
-  useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -58,10 +55,6 @@ type FriendHistoryItem = {
   date: string;
   photos: BagPhotoSeed[];
 };
-
-type FeedPage =
-  | { id: 'friend-list'; type: 'friend-list' }
-  | { id: string; type: 'bag'; bag: FriendBag };
 
 const initialLikeCounts: Record<string, number> = {
   'james-laptop': 21,
@@ -481,77 +474,61 @@ function PhysicsPhoto({
   );
 }
 
-function FriendListPage({
+function FriendStoryRail({
   friends,
-  searchText,
-  onSearchTextChange,
-  onFriendPress,
-  width,
-  topInset,
+  selectedFriendId,
+  onSelectFriend,
 }: {
   friends: FriendBag[];
-  searchText: string;
-  onSearchTextChange: (value: string) => void;
-  onFriendPress: (friendId: string) => void;
-  width: number;
-  topInset: number;
+  selectedFriendId: string;
+  onSelectFriend: (friendId: string) => void;
 }) {
-  const normalizedSearch = searchText.trim().toLowerCase();
-  const filteredFriends = normalizedSearch
-    ? friends.filter((friend) => friend.user.toLowerCase().includes(normalizedSearch))
-    : friends;
-
   return (
-    <View
-      style={[
-        styles.friendListPage,
-        {
-          width,
-          paddingTop: topInset + 22,
-        },
-      ]}
+    <ScrollView
+      horizontal
+      contentContainerStyle={styles.storyContent}
+      showsHorizontalScrollIndicator={false}
     >
-      <Text style={styles.friendListTitle}>친구 목록</Text>
-      <TextInput
-        value={searchText}
-        onChangeText={onSearchTextChange}
-        placeholder="친구 검색"
-        placeholderTextColor={Brand.muted}
-        autoCapitalize="none"
-        autoCorrect={false}
-        style={styles.searchInput}
-      />
-      <ScrollView
-        style={styles.friendList}
-        contentContainerStyle={styles.friendListContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {filteredFriends.map((friend) => (
+      {friends.map((friend) => {
+        const isSelected = friend.id === selectedFriendId;
+
+        return (
           <Pressable
             key={friend.id}
             style={({ pressed }) => [
-              styles.friendRow,
-              pressed ? styles.friendRowPressed : undefined,
+              styles.storyItem,
+              pressed ? styles.storyItemPressed : undefined,
             ]}
-            onPress={() => onFriendPress(friend.id)}
+            onPress={() => onSelectFriend(friend.id)}
           >
-            <Image source={{ uri: friend.avatar }} style={styles.friendAvatar} />
-            <View style={styles.friendInfo}>
-              <Text style={styles.friendUser}>@{friend.user}</Text>
-              <Text style={styles.friendMeta}>{friend.photos.length}개 객체</Text>
+            <View style={[styles.storyAvatarRing, isSelected ? styles.storyAvatarRingActive : undefined]}>
+              <Image source={{ uri: friend.avatar }} style={styles.storyAvatar} />
             </View>
+            <Text numberOfLines={1} ellipsizeMode="tail" style={styles.storyUser}>
+              {friend.user}
+            </Text>
           </Pressable>
-        ))}
-        {filteredFriends.length === 0 ? (
-          <Text style={styles.emptyFriendText}>검색 결과가 없습니다.</Text>
-        ) : null}
-      </ScrollView>
-    </View>
+        );
+      })}
+    </ScrollView>
   );
 }
 
 function getFriendHistoryItems(bag: FriendBag): FriendHistoryItem[] {
-  const dates = ['6/17', '6/5', '6/4', '5/28', '5/20', '5/11'];
+  const dates = [
+    '6/17',
+    '6/5',
+    '6/4',
+    '5/28',
+    '5/20',
+    '5/11',
+    '5/3',
+    '4/26',
+    '4/18',
+    '4/9',
+    '3/31',
+    '3/22',
+  ];
 
   return dates.map((date, index) => {
     const photos = bag.photos
@@ -596,15 +573,11 @@ function FriendHistoryCard({ item }: { item: FriendHistoryItem }) {
 
 function FriendBagPage({
   bag,
-  width,
-  topInset,
   onPhotoDragChange,
   photoLikes,
   onTogglePhotoLike,
 }: {
   bag: FriendBag;
-  width: number;
-  topInset: number;
   onPhotoDragChange: (isDragging: boolean) => void;
   photoLikes: Record<string, PhotoLikeState>;
   onTogglePhotoLike: (photoKey: string) => void;
@@ -737,26 +710,19 @@ function FriendBagPage({
   }, []);
 
   return (
-    <View
-      style={[
-        styles.page,
-        {
-          width,
-          paddingTop: topInset + 16,
-          paddingBottom: 0,
-        },
-      ]}
-    >
-      <View style={styles.profileRow}>
-        <Image source={{ uri: bag.avatar }} style={styles.avatar} />
-        <Text style={styles.userName}>@{bag.user}</Text>
-        <Pressable
-          style={[styles.modeToggle, showHistory ? styles.modeToggleActive : undefined]}
-          onPress={() => setShowHistory((value) => !value)}
-        >
-          <View style={[styles.toggleThumb, showHistory ? styles.toggleThumbActive : undefined]} />
-        </Pressable>
+    <View style={styles.bagPanel}>
+      <View style={styles.bagIdentity}>
+        <Image source={{ uri: bag.avatar }} style={styles.bagIdentityAvatar} />
+        <Text numberOfLines={1} ellipsizeMode="tail" style={styles.bagIdentityUser}>
+          @{bag.user}
+        </Text>
       </View>
+      <Pressable
+        style={[styles.modeToggle, styles.bagModeToggle, showHistory ? styles.modeToggleActive : undefined]}
+        onPress={() => setShowHistory((value) => !value)}
+      >
+        <View style={[styles.toggleThumb, showHistory ? styles.toggleThumbActive : undefined]} />
+      </Pressable>
       {showHistory ? (
         <ScrollView
           style={styles.history}
@@ -799,34 +765,10 @@ function FriendBagPage({
 }
 
 export default function HomeScreen() {
-  const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const feedListRef = useRef<FlatList<FeedPage>>(null);
-  const [isPhotoDragging, setIsPhotoDragging] = useState(false);
-  const [friendSearchText, setFriendSearchText] = useState('');
+  const [selectedFriendId, setSelectedFriendId] = useState(friendBags[0]?.id ?? '');
   const [photoLikes, setPhotoLikes] = useState<Record<string, PhotoLikeState>>({});
-  const feedPages: FeedPage[] = useMemo(
-    () => [
-      { id: 'friend-list', type: 'friend-list' },
-      ...friendBags.map((bag) => ({ id: bag.id, type: 'bag' as const, bag })),
-    ],
-    [],
-  );
-
-  const openFriendBag = useCallback(
-    (friendId: string) => {
-      const pageIndex = feedPages.findIndex((page) => page.id === friendId);
-      if (pageIndex < 0) {
-        return;
-      }
-
-      feedListRef.current?.scrollToIndex({
-        index: pageIndex,
-        animated: true,
-      });
-    },
-    [feedPages],
-  );
+  const selectedBag = friendBags.find((bag) => bag.id === selectedFriendId) ?? friendBags[0];
 
   const togglePhotoLike = useCallback((photoKey: string) => {
     setPhotoLikes((current) => {
@@ -848,43 +790,23 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
-      <FlatList
-        ref={feedListRef}
-        data={feedPages}
-        horizontal
-        pagingEnabled
-        bounces={false}
-        scrollEnabled={!isPhotoDragging}
-        contentInsetAdjustmentBehavior="automatic"
-        keyExtractor={(item) => item.id}
-        showsHorizontalScrollIndicator={false}
-        getItemLayout={(_, index) => ({
-          length: width,
-          offset: width * index,
-          index,
-        })}
-        renderItem={({ item }) =>
-          item.type === 'friend-list' ? (
-            <FriendListPage
-              friends={friendBags}
-              searchText={friendSearchText}
-              onSearchTextChange={setFriendSearchText}
-              onFriendPress={openFriendBag}
-              width={width}
-              topInset={insets.top}
-            />
-          ) : (
-            <FriendBagPage
-              bag={item.bag}
-              width={width}
-              topInset={insets.top}
-              onPhotoDragChange={setIsPhotoDragging}
-              photoLikes={photoLikes}
-              onTogglePhotoLike={togglePhotoLike}
-            />
-          )
-        }
-      />
+      <View style={[styles.feedHeader, { paddingTop: insets.top + 14 }]}>
+        <Text style={styles.feedTitle}>SnapBag</Text>
+        <FriendStoryRail
+          friends={friendBags}
+          selectedFriendId={selectedFriendId}
+          onSelectFriend={setSelectedFriendId}
+        />
+      </View>
+      {selectedBag ? (
+        <FriendBagPage
+          key={selectedBag.id}
+          bag={selectedBag}
+          onPhotoDragChange={() => {}}
+          photoLikes={photoLikes}
+          onTogglePhotoLike={togglePhotoLike}
+        />
+      ) : null}
     </View>
   );
 }
@@ -892,101 +814,96 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Brand.secondary,
+    backgroundColor: Brand.surface,
   },
-  friendListPage: {
-    flex: 1,
+  feedHeader: {
+    backgroundColor: Brand.surface,
+    borderBottomWidth: 0,
+  },
+  feedTitle: {
     paddingHorizontal: 18,
+    color: Brand.text,
+    fontSize: 26,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  storyContent: {
     gap: 14,
-    backgroundColor: Brand.secondary,
-  },
-  friendListTitle: {
-    color: Brand.text,
-    fontSize: 30,
-    fontWeight: '900',
-  },
-  searchInput: {
-    height: 50,
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    backgroundColor: Brand.surface,
-    borderWidth: 1,
-    borderColor: Brand.border,
-    color: Brand.text,
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  friendList: {
-    flex: 1,
-  },
-  friendListContent: {
-    gap: 10,
-    paddingBottom: 20,
-  },
-  friendRow: {
-    minHeight: 68,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
     paddingHorizontal: 14,
-    borderRadius: 8,
-    backgroundColor: Brand.surface,
-    borderWidth: 1,
-    borderColor: Brand.border,
+    paddingTop: 14,
+    paddingBottom: 12,
   },
-  friendRowPressed: {
+  storyItem: {
+    width: 66,
+    alignItems: 'center',
+    gap: 6,
+  },
+  storyItemPressed: {
     opacity: 0.72,
-    transform: [{ scale: 0.99 }],
+    transform: [{ scale: 0.97 }],
   },
-  friendAvatar: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+  storyAvatarRing: {
+    width: 60,
+    height: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 30,
+    borderWidth: 2,
+    borderColor: Brand.border,
+    backgroundColor: Brand.surface,
+  },
+  storyAvatarRingActive: {
+    borderColor: Brand.primary,
+  },
+  storyAvatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     backgroundColor: Brand.secondary,
   },
-  friendInfo: {
-    flex: 1,
-    gap: 2,
-  },
-  friendUser: {
+  storyUser: {
+    width: '100%',
     color: Brand.text,
-    fontSize: 17,
-    fontWeight: '900',
-  },
-  friendMeta: {
-    color: Brand.muted,
     fontSize: 12,
-    fontWeight: '800',
-  },
-  emptyFriendText: {
-    paddingTop: 18,
-    color: Brand.muted,
-    fontSize: 15,
     fontWeight: '800',
     textAlign: 'center',
   },
-  page: {
+  bagPanel: {
     flex: 1,
-    gap: 10,
-    paddingHorizontal: 14,
+    marginHorizontal: 14,
+    marginTop: 12,
+    marginBottom: 12,
+    overflow: 'hidden',
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: Brand.border,
+    backgroundColor: Brand.secondary,
   },
-  profileRow: {
+  bagIdentity: {
+    position: 'absolute',
+    top: 13,
+    left: 13,
+    zIndex: 30,
+    maxWidth: '58%',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
+    paddingRight: 10,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255, 255, 255, 0.74)',
   },
-  avatar: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: Brand.surface,
+  bagIdentityAvatar: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     borderWidth: 2,
     borderColor: Brand.surface,
+    backgroundColor: Brand.surface,
   },
-  userName: {
-    flex: 1,
+  bagIdentityUser: {
+    flexShrink: 1,
     color: Brand.text,
-    fontSize: 20,
+    fontSize: 15,
     fontWeight: '900',
   },
   modeToggle: {
@@ -1012,12 +929,20 @@ const styles = StyleSheet.create({
   toggleThumbActive: {
     alignSelf: 'flex-end',
   },
+  bagModeToggle: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    zIndex: 30,
+    backgroundColor: Brand.secondary,
+  },
   history: {
     flex: 1,
     backgroundColor: Brand.secondary,
   },
   historyContent: {
-    paddingTop: 2,
+    paddingTop: 54,
+    paddingHorizontal: 10,
     paddingBottom: 18,
   },
   historyGrid: {
