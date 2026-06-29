@@ -1,5 +1,7 @@
+import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Brand } from '@/constants/theme';
@@ -25,6 +27,9 @@ const supportActions: SettingsAction[] = [
   { id: 'contact', label: '문의하기' },
   { id: 'logout', label: '로그아웃' },
 ];
+
+const defaultProfileImage =
+  'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400';
 
 function SettingsGroup({
   actions,
@@ -59,11 +64,64 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { signOut, user } = useAuth();
   const displayName = user?.email ?? 'SnapBag User';
+  const [profileImageUri, setProfileImageUri] = useState(defaultProfileImage);
 
   const handleSupportAction = async (action: SettingsAction) => {
     if (action.id === 'logout') {
       await signOut();
     }
+  };
+
+  const updateProfileImage = (uri?: string) => {
+    if (uri) {
+      setProfileImageUri(uri);
+    }
+  };
+
+  const takeProfilePhoto = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('카메라 권한 필요', '프로필 사진을 촬영하려면 카메라 접근 권한이 필요해요.');
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.85,
+    });
+
+    if (!result.canceled) {
+      updateProfileImage(result.assets[0]?.uri);
+    }
+  };
+
+  const pickProfilePhoto = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('갤러리 권한 필요', '프로필 사진을 선택하려면 갤러리 접근 권한이 필요해요.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.85,
+    });
+
+    if (!result.canceled) {
+      updateProfileImage(result.assets[0]?.uri);
+    }
+  };
+
+  const showProfileImageOptions = () => {
+    Alert.alert('프로필 사진 변경', undefined, [
+      { text: '사진 촬영', onPress: takeProfilePhoto },
+      { text: '갤러리에서 선택', onPress: pickProfilePhoto },
+      { text: '취소', style: 'cancel' },
+    ]);
   };
 
   return (
@@ -80,11 +138,22 @@ export default function SettingsScreen() {
       showsVerticalScrollIndicator={false}
     >
       <View style={styles.profile}>
-        <Image
-          source={{ uri: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400' }}
-          style={styles.profileImage}
-          contentFit="cover"
-        />
+        <View style={styles.profileImageWrap}>
+          <Image
+            source={{ uri: profileImageUri }}
+            style={styles.profileImage}
+            contentFit="cover"
+          />
+          <Pressable
+            style={({ pressed }) => [
+              styles.profileAddButton,
+              pressed ? styles.profileAddButtonPressed : undefined,
+            ]}
+            onPress={showProfileImageOptions}
+          >
+            <Text style={styles.profileAddText}>+</Text>
+          </Pressable>
+        </View>
         <Text style={styles.profileName}>{displayName}</Text>
       </View>
 
@@ -109,6 +178,13 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingBottom: 8,
   },
+  profileImageWrap: {
+    position: 'relative',
+    width: 104,
+    height: 104,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   profileImage: {
     width: 96,
     height: 96,
@@ -116,6 +192,29 @@ const styles = StyleSheet.create({
     backgroundColor: Brand.surface,
     borderWidth: 3,
     borderColor: Brand.surface,
+  },
+  profileAddButton: {
+    position: 'absolute',
+    right: 2,
+    bottom: 2,
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+    backgroundColor: Brand.surface,
+    borderWidth: 2,
+    borderColor: Brand.border,
+  },
+  profileAddButtonPressed: {
+    opacity: 0.72,
+    transform: [{ scale: 0.94 }],
+  },
+  profileAddText: {
+    color: Brand.text,
+    fontSize: 24,
+    lineHeight: 26,
+    fontWeight: '900',
   },
   profileName: {
     color: Brand.text,
