@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Image,
   LayoutChangeEvent,
+  Modal,
   PanResponder,
   Platform,
   Pressable,
@@ -23,6 +24,9 @@ const FIXED_TIMESTEP = 1000 / 60;
 type BagPhotoSeed = {
   id: string;
   source: ImageSourcePropType;
+  name: string;
+  capturedAt: string;
+  locationName: string;
   x: number;
   y: number;
   size: number;
@@ -36,6 +40,11 @@ type PhysicsPhotoItem = BagPhotoSeed & {
 type PhotoLikeState = {
   count: number;
   liked: boolean;
+};
+
+type SelectedPhotoInfo = {
+  photo: BagPhotoSeed;
+  photoKey: string;
 };
 
 type WorldSize = {
@@ -84,6 +93,9 @@ const friendBags: FriendBag[] = [
       {
         id: 'laptop',
         source: require('@/assets/images/feed-objects/laptop.png'),
+        name: '노트북',
+        capturedAt: '2026.06.17 10:32',
+        locationName: '서울 성수동 카페',
         x: 0.28,
         y: 0.22,
         size: 122,
@@ -92,6 +104,9 @@ const friendBags: FriendBag[] = [
       {
         id: 'coffee',
         source: require('@/assets/images/feed-objects/coffee.png'),
+        name: '커피',
+        capturedAt: '2026.06.17 10:40',
+        locationName: '서울 성수동 카페',
         x: 0.66,
         y: 0.21,
         size: 102,
@@ -100,6 +115,9 @@ const friendBags: FriendBag[] = [
       {
         id: 'notebook',
         source: require('@/assets/images/feed-objects/notebook.png'),
+        name: '노트',
+        capturedAt: '2026.06.17 11:08',
+        locationName: '서울 성수동 카페',
         x: 0.39,
         y: 0.58,
         size: 132,
@@ -108,6 +126,9 @@ const friendBags: FriendBag[] = [
       {
         id: 'earbuds',
         source: require('@/assets/images/feed-objects/earbuds.png'),
+        name: '이어버드',
+        capturedAt: '2026.06.17 11:20',
+        locationName: '서울 성수동 카페',
         x: 0.69,
         y: 0.64,
         size: 96,
@@ -123,6 +144,9 @@ const friendBags: FriendBag[] = [
       {
         id: 'shoes',
         source: require('@/assets/images/feed-objects/shoes.png'),
+        name: '운동화',
+        capturedAt: '2026.06.16 14:12',
+        locationName: '한강공원',
         x: 0.3,
         y: 0.28,
         size: 126,
@@ -131,6 +155,9 @@ const friendBags: FriendBag[] = [
       {
         id: 'bottle',
         source: require('@/assets/images/feed-objects/bottle.png'),
+        name: '물병',
+        capturedAt: '2026.06.16 14:25',
+        locationName: '한강공원',
         x: 0.65,
         y: 0.29,
         size: 94,
@@ -139,6 +166,9 @@ const friendBags: FriendBag[] = [
       {
         id: 'watch',
         source: require('@/assets/images/feed-objects/watch.png'),
+        name: '스마트워치',
+        capturedAt: '2026.06.16 15:02',
+        locationName: '한강공원',
         x: 0.35,
         y: 0.66,
         size: 102,
@@ -147,6 +177,9 @@ const friendBags: FriendBag[] = [
       {
         id: 'towel',
         source: require('@/assets/images/feed-objects/towel.png'),
+        name: '타월',
+        capturedAt: '2026.06.16 15:18',
+        locationName: '한강공원',
         x: 0.65,
         y: 0.63,
         size: 122,
@@ -162,6 +195,9 @@ const friendBags: FriendBag[] = [
       {
         id: 'tablet',
         source: require('@/assets/images/feed-objects/tablet.png'),
+        name: '태블릿',
+        capturedAt: '2026.06.15 09:44',
+        locationName: '강남역 스터디룸',
         x: 0.29,
         y: 0.23,
         size: 122,
@@ -170,6 +206,9 @@ const friendBags: FriendBag[] = [
       {
         id: 'book',
         source: require('@/assets/images/feed-objects/book.png'),
+        name: '책',
+        capturedAt: '2026.06.15 10:05',
+        locationName: '강남역 스터디룸',
         x: 0.64,
         y: 0.26,
         size: 116,
@@ -178,6 +217,9 @@ const friendBags: FriendBag[] = [
       {
         id: 'pen',
         source: require('@/assets/images/feed-objects/pen.png'),
+        name: '펜',
+        capturedAt: '2026.06.15 10:37',
+        locationName: '강남역 스터디룸',
         x: 0.34,
         y: 0.65,
         size: 102,
@@ -186,6 +228,9 @@ const friendBags: FriendBag[] = [
       {
         id: 'wallet',
         source: require('@/assets/images/feed-objects/wallet.png'),
+        name: '지갑',
+        capturedAt: '2026.06.15 11:03',
+        locationName: '강남역 스터디룸',
         x: 0.68,
         y: 0.63,
         size: 104,
@@ -201,6 +246,9 @@ const friendBags: FriendBag[] = [
       {
         id: 'camera',
         source: require('@/assets/images/feed-objects/camera.png'),
+        name: '카메라',
+        capturedAt: '2026.06.14 16:22',
+        locationName: '북촌 한옥마을',
         x: 0.3,
         y: 0.25,
         size: 124,
@@ -209,6 +257,9 @@ const friendBags: FriendBag[] = [
       {
         id: 'sunglasses',
         source: require('@/assets/images/feed-objects/sunglasses.png'),
+        name: '선글라스',
+        capturedAt: '2026.06.14 16:40',
+        locationName: '북촌 한옥마을',
         x: 0.67,
         y: 0.24,
         size: 104,
@@ -217,6 +268,9 @@ const friendBags: FriendBag[] = [
       {
         id: 'keys',
         source: require('@/assets/images/feed-objects/keys.png'),
+        name: '열쇠',
+        capturedAt: '2026.06.14 17:06',
+        locationName: '북촌 한옥마을',
         x: 0.33,
         y: 0.64,
         size: 96,
@@ -225,6 +279,9 @@ const friendBags: FriendBag[] = [
       {
         id: 'pouch',
         source: require('@/assets/images/feed-objects/pouch.png'),
+        name: '파우치',
+        capturedAt: '2026.06.14 17:31',
+        locationName: '북촌 한옥마을',
         x: 0.65,
         y: 0.62,
         size: 126,
@@ -303,15 +360,13 @@ function PhysicsPhoto({
   frame,
   worldSize,
   onPhotoDragChange,
-  likeState,
-  onToggleLike,
+  onOpenPhotoInfo,
 }: {
   photo: PhysicsPhotoItem;
   frame: number;
   worldSize: WorldSize;
   onPhotoDragChange: (isDragging: boolean) => void;
-  likeState: PhotoLikeState;
-  onToggleLike: () => void;
+  onOpenPhotoInfo: (photo: BagPhotoSeed) => void;
 }) {
   void frame;
 
@@ -322,10 +377,11 @@ function PhysicsPhoto({
   const dragFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onPhotoDragChangeRef = useRef(onPhotoDragChange);
-  const [showLikeBubble, setShowLikeBubble] = useState(false);
+  const onOpenPhotoInfoRef = useRef(onOpenPhotoInfo);
   bodyRef.current = photo.body;
   worldSizeRef.current = worldSize;
   onPhotoDragChangeRef.current = onPhotoDragChange;
+  onOpenPhotoInfoRef.current = onOpenPhotoInfo;
 
   const clearDragFallback = () => {
     if (dragFallbackRef.current) {
@@ -391,9 +447,8 @@ function PhysicsPhoto({
         isDraggingRef.current = true;
         onPhotoDragChangeRef.current(true);
         clearLongPressTimer();
-        setShowLikeBubble(false);
         longPressTimerRef.current = setTimeout(() => {
-          setShowLikeBubble(true);
+          onOpenPhotoInfoRef.current(photo);
         }, 1000);
         scheduleDragFallback();
         dragStartRef.current = { x: body.position.x, y: body.position.y };
@@ -406,7 +461,6 @@ function PhysicsPhoto({
         scheduleDragFallback();
         if (Math.abs(gestureState.dx) > 8 || Math.abs(gestureState.dy) > 8) {
           clearLongPressTimer();
-          setShowLikeBubble(false);
         }
         Body.setPosition(
           body,
@@ -435,42 +489,82 @@ function PhysicsPhoto({
   const { x, y } = photo.body.position;
 
   return (
-    <>
-      {showLikeBubble ? (
-        <Pressable
-          style={[
-            styles.likeBubble,
-            {
-              left: x - 44,
-              top: Math.max(8, y - photo.size / 2 - 54),
-            },
-          ]}
-          hitSlop={10}
-          onPress={onToggleLike}
-        >
-          <Text style={[styles.likeHeart, likeState.liked ? styles.likeHeartActive : undefined]}>
-            {likeState.liked ? '♥' : '♡'}
-          </Text>
-          <Text style={styles.likeCount}>{likeState.count}</Text>
-          <View style={styles.likeBubbleTail} />
-        </Pressable>
-      ) : null}
-      <View
-        style={[
-          styles.photoCard,
-          {
-            left: x - photo.size / 2,
-            top: y - photo.size / 2,
-            width: photo.size,
-            height: photo.size,
-            transform: [{ rotate: `${photo.body.angle}rad` }],
-          },
-        ]}
-        {...panResponder.panHandlers}
-      >
-        <Image source={photo.source} style={styles.photo} />
+    <View
+      style={[
+        styles.photoCard,
+        {
+          left: x - photo.size / 2,
+          top: y - photo.size / 2,
+          width: photo.size,
+          height: photo.size,
+          transform: [{ rotate: `${photo.body.angle}rad` }],
+        },
+      ]}
+      {...panResponder.panHandlers}
+    >
+      <Image source={photo.source} style={styles.photo} />
+    </View>
+  );
+}
+
+function PhotoInfoModal({
+  selectedPhoto,
+  likeState,
+  onToggleLike,
+  onClose,
+}: {
+  selectedPhoto: SelectedPhotoInfo | null;
+  likeState: PhotoLikeState;
+  onToggleLike: () => void;
+  onClose: () => void;
+}) {
+  const photo = selectedPhoto?.photo;
+
+  return (
+    <Modal visible={!!photo} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.infoOverlay}>
+        <View style={styles.infoCard}>
+          <Pressable style={styles.infoCloseButton} onPress={onClose} hitSlop={10}>
+            <Text style={styles.infoCloseText}>×</Text>
+          </Pressable>
+          {photo ? (
+            <ScrollView
+              style={styles.infoScroll}
+              contentContainerStyle={styles.infoScrollContent}
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={styles.infoHeader}>
+                <View style={styles.infoTitleBlock}>
+                  <Text style={styles.infoObjectName}>{photo.name}</Text>
+                  <Text style={styles.infoCapturedAt}>{photo.capturedAt}</Text>
+                </View>
+                <Pressable style={styles.infoLikeButton} onPress={onToggleLike}>
+                  <Text style={[styles.infoLikeHeart, likeState.liked ? styles.likeHeartActive : undefined]}>
+                    {likeState.liked ? '♥' : '♡'}
+                  </Text>
+                  <Text style={styles.infoLikeCount}>{likeState.count}</Text>
+                </Pressable>
+              </View>
+              <View style={styles.infoImageStage}>
+                <Image source={photo.source} style={styles.infoImage} />
+              </View>
+              <View style={styles.infoMapSection}>
+                <Text style={styles.infoMapTitle}>찍은 위치</Text>
+                <Text style={styles.infoLocationName}>{photo.locationName}</Text>
+                <View style={styles.mockMap}>
+                  <View style={[styles.mapRoad, styles.mapRoadOne]} />
+                  <View style={[styles.mapRoad, styles.mapRoadTwo]} />
+                  <View style={[styles.mapRoad, styles.mapRoadThree]} />
+                  <View style={styles.mapPinOuter}>
+                    <View style={styles.mapPinInner} />
+                  </View>
+                </View>
+              </View>
+            </ScrollView>
+          ) : null}
+        </View>
       </View>
-    </>
+    </Modal>
   );
 }
 
@@ -574,13 +668,11 @@ function FriendHistoryCard({ item }: { item: FriendHistoryItem }) {
 function FriendBagPage({
   bag,
   onPhotoDragChange,
-  photoLikes,
-  onTogglePhotoLike,
+  onOpenPhotoInfo,
 }: {
   bag: FriendBag;
   onPhotoDragChange: (isDragging: boolean) => void;
-  photoLikes: Record<string, PhotoLikeState>;
-  onTogglePhotoLike: (photoKey: string) => void;
+  onOpenPhotoInfo: (info: SelectedPhotoInfo) => void;
 }) {
   const engineRef = useRef(Engine.create({ gravity: { x: 0, y: 0, scale: 0.002 } }));
   const wallsRef = useRef<Matter.Body[]>([]);
@@ -740,10 +832,6 @@ function FriendBagPage({
           {photos.map((photo) => (
             (() => {
               const photoKey = `${bag.id}-${photo.id}`;
-              const likeState = photoLikes[photoKey] ?? {
-                count: initialLikeCounts[photoKey] ?? 0,
-                liked: false,
-              };
 
               return (
                 <PhysicsPhoto
@@ -752,8 +840,7 @@ function FriendBagPage({
                   frame={frame}
                   worldSize={worldSizeRef.current}
                   onPhotoDragChange={onPhotoDragChange}
-                  likeState={likeState}
-                  onToggleLike={() => onTogglePhotoLike(photoKey)}
+                  onOpenPhotoInfo={() => onOpenPhotoInfo({ photo, photoKey })}
                 />
               );
             })()
@@ -768,6 +855,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const [selectedFriendId, setSelectedFriendId] = useState(friendBags[0]?.id ?? '');
   const [photoLikes, setPhotoLikes] = useState<Record<string, PhotoLikeState>>({});
+  const [selectedPhotoInfo, setSelectedPhotoInfo] = useState<SelectedPhotoInfo | null>(null);
   const selectedBag = friendBags.find((bag) => bag.id === selectedFriendId) ?? friendBags[0];
 
   const togglePhotoLike = useCallback((photoKey: string) => {
@@ -788,8 +876,25 @@ export default function HomeScreen() {
     });
   }, []);
 
+  const selectedPhotoLikeState = selectedPhotoInfo
+    ? photoLikes[selectedPhotoInfo.photoKey] ?? {
+        count: initialLikeCounts[selectedPhotoInfo.photoKey] ?? 0,
+        liked: false,
+      }
+    : { count: 0, liked: false };
+
   return (
     <View style={styles.container}>
+      <PhotoInfoModal
+        selectedPhoto={selectedPhotoInfo}
+        likeState={selectedPhotoLikeState}
+        onToggleLike={() => {
+          if (selectedPhotoInfo) {
+            togglePhotoLike(selectedPhotoInfo.photoKey);
+          }
+        }}
+        onClose={() => setSelectedPhotoInfo(null)}
+      />
       <View style={[styles.feedHeader, { paddingTop: insets.top + 14 }]}>
         <Text style={styles.feedTitle}>SnapBag</Text>
         <FriendStoryRail
@@ -803,8 +908,7 @@ export default function HomeScreen() {
           key={selectedBag.id}
           bag={selectedBag}
           onPhotoDragChange={() => {}}
-          photoLikes={photoLikes}
-          onTogglePhotoLike={togglePhotoLike}
+          onOpenPhotoInfo={setSelectedPhotoInfo}
         />
       ) : null}
     </View>
@@ -814,6 +918,178 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: Brand.surface,
+  },
+  infoOverlay: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 22,
+    backgroundColor: 'rgba(17, 24, 39, 0.42)',
+  },
+  infoCard: {
+    width: '100%',
+    maxWidth: 360,
+    maxHeight: '66%',
+    overflow: 'hidden',
+    borderRadius: 8,
+    backgroundColor: Brand.surface,
+    borderWidth: 1,
+    borderColor: Brand.border,
+  },
+  infoCloseButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    zIndex: 20,
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.84)',
+  },
+  infoCloseText: {
+    color: Brand.text,
+    fontSize: 24,
+    lineHeight: 26,
+    fontWeight: '900',
+  },
+  infoScroll: {
+    maxHeight: '100%',
+  },
+  infoScrollContent: {
+    paddingBottom: 14,
+  },
+  infoHeader: {
+    minHeight: 76,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Brand.border,
+  },
+  infoTitleBlock: {
+    flex: 1,
+    gap: 3,
+  },
+  infoObjectName: {
+    color: Brand.text,
+    fontSize: 21,
+    fontWeight: '900',
+  },
+  infoCapturedAt: {
+    color: Brand.muted,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  infoLikeButton: {
+    minWidth: 72,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 7,
+    marginRight: 28,
+  },
+  infoLikeHeart: {
+    color: Brand.text,
+    fontSize: 31,
+    lineHeight: 35,
+    fontWeight: '900',
+  },
+  infoLikeCount: {
+    color: Brand.text,
+    fontSize: 22,
+    fontWeight: '900',
+    fontVariant: ['tabular-nums'],
+  },
+  infoImageStage: {
+    minHeight: 280,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    backgroundColor: Brand.secondary,
+  },
+  infoImage: {
+    width: '86%',
+    height: 220,
+    resizeMode: 'contain',
+  },
+  infoMapSection: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    gap: 7,
+    borderTopWidth: 1,
+    borderTopColor: Brand.border,
+    backgroundColor: Brand.surface,
+  },
+  infoMapTitle: {
+    color: Brand.text,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  infoLocationName: {
+    color: Brand.muted,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  mockMap: {
+    height: 180,
+    marginTop: 6,
+    overflow: 'hidden',
+    borderRadius: 8,
+    backgroundColor: '#E9EEF2',
+    borderWidth: 1,
+    borderColor: Brand.border,
+  },
+  mapRoad: {
+    position: 'absolute',
+    height: 18,
+    borderRadius: 999,
+    backgroundColor: '#FFFFFF',
+    opacity: 0.92,
+  },
+  mapRoadOne: {
+    left: -28,
+    top: 46,
+    width: 250,
+    transform: [{ rotate: '-18deg' }],
+  },
+  mapRoadTwo: {
+    right: -32,
+    top: 102,
+    width: 260,
+    transform: [{ rotate: '14deg' }],
+  },
+  mapRoadThree: {
+    left: 78,
+    top: 8,
+    width: 18,
+    height: 230,
+    transform: [{ rotate: '28deg' }],
+  },
+  mapPinOuter: {
+    position: 'absolute',
+    left: '50%',
+    top: '50%',
+    width: 34,
+    height: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: -17,
+    marginTop: -17,
+    borderRadius: 17,
+    backgroundColor: '#EF4444',
+    borderWidth: 3,
+    borderColor: Brand.surface,
+  },
+  mapPinInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
     backgroundColor: Brand.surface,
   },
   feedHeader: {
