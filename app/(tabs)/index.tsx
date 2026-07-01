@@ -1,6 +1,8 @@
 import { Accelerometer } from 'expo-sensors';
+import { LinearGradient } from 'expo-linear-gradient';
 import Matter, { Bodies, Body, Engine, World } from 'matter-js';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import MaskedView from '@react-native-masked-view/masked-view';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import {
   Image,
@@ -21,6 +23,7 @@ import { Brand } from '@/constants/theme';
 
 const WALL_THICKNESS = 70;
 const FIXED_TIMESTEP = 1000 / 60;
+const TITLE_GRADIENT = ['#FFF3E6', '#F8C8DC', '#C7B8EA'] as const;
 
 type BagPhotoSeed = {
   id: string;
@@ -618,6 +621,28 @@ function PhotoInfoModal({
   );
 }
 
+function GradientBrandTitle() {
+  return (
+    <View style={styles.feedTitleWrap}>
+      <MaskedView
+        style={styles.feedTitleMask}
+        maskElement={
+          <View style={styles.feedTitleMaskContent}>
+            <Text style={styles.feedTitle}>SnapBag</Text>
+          </View>
+        }
+      >
+        <LinearGradient
+          colors={TITLE_GRADIENT}
+          start={{ x: 0, y: 0.5 }}
+          end={{ x: 1, y: 0.5 }}
+          style={styles.feedTitleGradient}
+        />
+      </MaskedView>
+    </View>
+  );
+}
+
 function FriendStoryRail({
   friends,
   selectedFriendId,
@@ -946,7 +971,7 @@ export default function HomeScreen() {
         onClose={() => setSelectedPhotoInfo(null)}
       />
       <View style={[styles.feedHeader, { paddingTop: insets.top + 14 }]}>
-        <Text style={styles.feedTitle}>SnapBag</Text>
+        <GradientBrandTitle />
         <FriendStoryRail
           friends={friendBags}
           selectedFriendId={selectedFriendId}
@@ -1098,11 +1123,36 @@ const styles = StyleSheet.create({
     backgroundColor: Brand.surface,
     borderBottomWidth: 0,
   },
+  feedTitleWrap: {
+    height: 76,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  feedTitleMask: {
+    width: 300,
+    height: 76,
+  },
+  feedTitleMaskContent: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  feedTitleGradient: {
+    flex: 1,
+  },
   feedTitle: {
-    paddingHorizontal: 18,
-    color: Brand.text,
-    fontSize: 26,
+    color: '#000000',
+    fontFamily: Platform.select({
+      ios: 'Snell Roundhand',
+      android: 'casual',
+      default: 'cursive',
+    }),
+    fontSize: 39,
     fontWeight: '900',
+    fontStyle: 'italic',
+    letterSpacing: 0,
+    lineHeight: 68,
     textAlign: 'center',
   },
   storyContent: {
