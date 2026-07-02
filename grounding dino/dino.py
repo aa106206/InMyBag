@@ -204,16 +204,16 @@ def build_display_label_map(candidates):
 
     for candidate in candidates:
         dino_label = str(candidate.get("dino_label_en", "")).strip().lower()
-        specific_label = str(candidate.get("specific_label_ko", "")).strip()
         generic_label = str(candidate.get("generic_label_ko", "")).strip()
+        fallback_label = generic_label or dino_label
 
         if dino_label:
-            label_map[dino_label] = specific_label or generic_label or dino_label
+            label_map[dino_label] = fallback_label
 
         for alias in candidate.get("aliases_en", []):
             alias = str(alias).strip().lower()
             if alias:
-                label_map[alias] = specific_label or generic_label or alias
+                label_map[alias] = generic_label or alias
 
     return label_map
 
@@ -265,10 +265,9 @@ def draw_detection_results(image, results, label_map):
         box = [round(x, 2) for x in box.tolist()]
         detected_label = str(text_label).strip().lower()
         display_label = label_map.get(detected_label, text_label)
-        label = f"{display_label}: {score.item():.2f}"
         draw.rectangle(box, outline="white", width=8)
         draw.rectangle(box, outline="red", width=5)
-        draw_label(draw, box, label, font)
+        draw_label(draw, box, display_label, font)
         print(
             f"Detected {display_label} ({text_label}) with confidence "
             f"{round(score.item(), 3)} at location {box}"

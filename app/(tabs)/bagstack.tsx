@@ -3,6 +3,7 @@ import { Accelerometer } from "expo-sensors";
 import Matter, { Bodies, Body, Engine, World } from "matter-js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Image,
   LayoutChangeEvent,
@@ -456,23 +457,6 @@ function clampPromptBox(box: Sam2PromptBox, imageSize: ObjectSize): Sam2PromptBo
   };
 }
 
-function scalePromptBox(box: Sam2PromptBox, imageSize: ObjectSize, scale: number): Sam2PromptBox {
-  const centerX = (box.x0 + box.x1) / 2;
-  const centerY = (box.y0 + box.y1) / 2;
-  const nextWidth = (box.x1 - box.x0) * scale;
-  const nextHeight = (box.y1 - box.y0) * scale;
-
-  return clampPromptBox(
-    {
-      x0: centerX - nextWidth / 2,
-      y0: centerY - nextHeight / 2,
-      x1: centerX + nextWidth / 2,
-      y1: centerY + nextHeight / 2,
-    },
-    imageSize,
-  );
-}
-
 function getAspectFitFrame(container: ObjectSize, image: ObjectSize): Rect {
   if (container.width <= 0 || container.height <= 0 || image.width <= 0 || image.height <= 0) {
     return { x: 0, y: 0, width: 0, height: 0 };
@@ -512,7 +496,6 @@ function SegmentPreviewModal({
   isSegmenting,
   onSelectDetection,
   onMoveBox,
-  onScaleBox,
   onCancel,
   onConfirm,
   onRetune,
@@ -527,7 +510,6 @@ function SegmentPreviewModal({
   isSegmenting: boolean;
   onSelectDetection: (box: DinoDetectionBox) => void;
   onMoveBox: (dx: number, dy: number) => void;
-  onScaleBox: (scale: number) => void;
   onCancel: () => void;
   onConfirm: () => void;
   onRetune: () => void;
@@ -614,22 +596,6 @@ function SegmentPreviewModal({
                   resizeMode="contain"
                 />
               </View>
-              {typeof segmentedResult.score === "number" ? (
-                <Text style={styles.resultScore}>
-                  SAM2 score {segmentedResult.score.toFixed(3)}
-                </Text>
-              ) : null}
-            </View>
-
-            <View style={styles.resultOriginalCard}>
-              <Text style={styles.resultCardTitle}>사용한 bbox</Text>
-              <View style={styles.resultOriginalImageWrap}>
-                <Image
-                  source={{ uri: photo.uri }}
-                  style={styles.resultOriginalImage}
-                  resizeMode="contain"
-                />
-              </View>
             </View>
           </View>
         ) : (
@@ -641,7 +607,7 @@ function SegmentPreviewModal({
             }}
           >
             <Image source={{ uri: photo.uri }} style={styles.previewImage} resizeMode="contain" />
-            {imageFrame.width > 0
+            {imageFrame.width > 0 && !isDetecting
               ? detectionBoxes.map((detectedBox) => {
                   const candidateBox = getOverlayBox(detectedBox.box, photo, imageFrame);
                   const isSelected = detectedBox.id === selectedDetectionId;
@@ -668,14 +634,14 @@ function SegmentPreviewModal({
                         ]}
                       >
                         <Text style={styles.detectedBoxLabelText}>
-                          {detectedBox.label} {Math.round(detectedBox.score * 100)}%
+                          {detectedBox.label}
                         </Text>
                       </View>
                     </Pressable>
                   );
                 })
               : null}
-            {imageFrame.width > 0 ? (
+            {imageFrame.width > 0 && !isDetecting ? (
               <View
                 style={[
                   styles.promptBox,
@@ -689,7 +655,7 @@ function SegmentPreviewModal({
                 {...panResponder.panHandlers}
               >
                 <View style={styles.promptLabel}>
-                  <Text style={styles.promptLabelText}>이 영역을 Segment</Text>
+                  <Text style={styles.promptLabelText}>물건 선택하기</Text>
                 </View>
                 <View style={[styles.promptCorner, styles.promptCornerTopLeft]} />
                 <View style={[styles.promptCorner, styles.promptCornerTopRight]} />
@@ -697,34 +663,24 @@ function SegmentPreviewModal({
                 <View style={[styles.promptCorner, styles.promptCornerBottomRight]} />
               </View>
             ) : null}
+            {isDetecting ? (
+              <View style={styles.detectionLoadingOverlay}>
+                <View style={styles.detectionLoadingCard}>
+                  <Image
+                    source={require("@/assets/images/SnapBag.png")}
+                    style={styles.detectionLoadingLogo}
+                    resizeMode="contain"
+                  />
+                  <Text style={styles.detectionLoadingBrand}>SnapBag</Text>
+                  <ActivityIndicator color={Brand.primary} size="small" />
+                  <Text style={styles.detectionLoadingText}>객체 후보 탐지중 ..</Text>
+                </View>
+              </View>
+            ) : null}
           </View>
         )}
 
         <View style={styles.previewControls}>
-          {isDetecting ? (
-            <View style={styles.detectingNotice}>
-              <Text style={styles.detectingNoticeText}>객체 후보 탐지 중...</Text>
-            </View>
-          ) : null}
-          {!segmentedResult ? (
-            <View style={styles.sizeControls}>
-              <Pressable
-                style={[styles.sizeButton, isSegmenting && styles.disabledButton]}
-                onPress={() => onScaleBox(0.88)}
-                disabled={isSegmenting}
-              >
-                <Text style={styles.sizeButtonText}>박스 작게</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.sizeButton, isSegmenting && styles.disabledButton]}
-                onPress={() => onScaleBox(1.12)}
-                disabled={isSegmenting}
-              >
-                <Text style={styles.sizeButtonText}>박스 크게</Text>
-              </Pressable>
-            </View>
-          ) : null}
-
           <View style={styles.previewActions}>
             {segmentedResult ? (
               <>
@@ -733,7 +689,7 @@ function SegmentPreviewModal({
                   onPress={onRetune}
                   disabled={isSegmenting}
                 >
-                  <Text style={styles.previewSecondaryText}>박스 다시 조정</Text>
+                  <Text style={styles.previewSecondaryText}>물건 다시 선택</Text>
                 </Pressable>
                 <Pressable
                   style={[styles.previewButton, styles.previewPrimaryButton]}
@@ -752,19 +708,21 @@ function SegmentPreviewModal({
                 >
                   <Text style={styles.previewSecondaryText}>다시 찍기</Text>
                 </Pressable>
-                <Pressable
-                  style={[
-                    styles.previewButton,
-                    styles.previewPrimaryButton,
-                    (isDetecting || isSegmenting) && styles.disabledButton,
-                  ]}
-                  onPress={onConfirm}
-                  disabled={isDetecting || isSegmenting}
-                >
-                  <Text style={styles.previewPrimaryText}>
-                    {isDetecting ? "탐지 중..." : isSegmenting ? "분리 중..." : "이 박스로 Segment"}
-                  </Text>
-                </Pressable>
+                {!isDetecting ? (
+                  <Pressable
+                    style={[
+                      styles.previewButton,
+                      styles.previewPrimaryButton,
+                      isSegmenting && styles.disabledButton,
+                    ]}
+                    onPress={onConfirm}
+                    disabled={isSegmenting}
+                  >
+                    <Text style={styles.previewPrimaryText}>
+                      {isSegmenting ? "분리 중..." : "물건 선택하기"}
+                    </Text>
+                  </Pressable>
+                ) : null}
               </>
             )}
           </View>
@@ -1153,23 +1111,6 @@ export default function BagStackScreen() {
     [pendingPhoto, promptBox],
   );
 
-  const scaleCurrentPromptBox = useCallback(
-    (scale: number) => {
-      if (!pendingPhoto) {
-        return;
-      }
-
-      setPromptBox((current) => {
-        if (!current) {
-          return current;
-        }
-
-        return scalePromptBox(current, pendingPhoto, scale);
-      });
-    },
-    [pendingPhoto],
-  );
-
   const cancelSegmentPreview = useCallback(() => {
     if (isSegmenting) {
       return;
@@ -1239,7 +1180,6 @@ export default function BagStackScreen() {
         isSegmenting={isSegmenting}
         onSelectDetection={selectDetectionBox}
         onMoveBox={movePromptBox}
-        onScaleBox={scaleCurrentPromptBox}
         onCancel={cancelSegmentPreview}
         onConfirm={confirmSegmentPreview}
         onRetune={retuneSegmentBox}
@@ -1460,14 +1400,6 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.14)",
     backgroundColor: "#16161A",
   },
-  resultOriginalCard: {
-    height: 118,
-    overflow: "hidden",
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "#16161A",
-  },
   resultCardTitle: {
     color: "#FFFFFF",
     fontSize: 13,
@@ -1497,25 +1429,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#EDF1F5",
   },
   segmentedObjectImage: {
-    width: "100%",
-    height: "100%",
-  },
-  resultScore: {
-    color: "rgba(255,255,255,0.72)",
-    fontSize: 12,
-    fontWeight: "700",
-    paddingHorizontal: 12,
-    paddingBottom: 12,
-  },
-  resultOriginalImageWrap: {
-    flex: 1,
-    marginHorizontal: 12,
-    marginBottom: 12,
-    overflow: "hidden",
-    borderRadius: 8,
-    backgroundColor: "#000000",
-  },
-  resultOriginalImage: {
     width: "100%",
     height: "100%",
   },
@@ -1553,19 +1466,37 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "900",
   },
-  detectingNotice: {
-    marginBottom: 12,
-    paddingVertical: 10,
+  detectionLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
     alignItems: "center",
-    borderRadius: 8,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.42)",
   },
-  detectingNoticeText: {
+  detectionLoadingCard: {
+    alignItems: "center",
+    gap: 10,
+    minWidth: 190,
+    paddingHorizontal: 24,
+    paddingVertical: 22,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
+    backgroundColor: "rgba(16,16,20,0.88)",
+  },
+  detectionLoadingLogo: {
+    width: 58,
+    height: 58,
+    borderRadius: 14,
+  },
+  detectionLoadingBrand: {
     color: "#FFFFFF",
-    fontSize: 13,
+    fontSize: 20,
     fontWeight: "900",
+  },
+  detectionLoadingText: {
+    color: "rgba(255,255,255,0.82)",
+    fontSize: 14,
+    fontWeight: "800",
   },
   promptLabel: {
     position: "absolute",
@@ -1618,25 +1549,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#101014",
     borderTopWidth: 1,
     borderTopColor: "rgba(255,255,255,0.12)",
-  },
-  sizeControls: {
-    flexDirection: "row",
-    gap: 10,
-    marginBottom: 12,
-  },
-  sizeButton: {
-    flex: 1,
-    alignItems: "center",
-    paddingVertical: 11,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.18)",
-    backgroundColor: "rgba(255,255,255,0.08)",
-  },
-  sizeButtonText: {
-    color: "#FFFFFF",
-    fontSize: 13,
-    fontWeight: "800",
   },
   previewActions: {
     flexDirection: "row",
