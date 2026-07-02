@@ -13,6 +13,13 @@ type SegmentResponse = {
   cutoutHeight: number;
 };
 
+type DetectionResponse = {
+  width: number;
+  height: number;
+  prompt?: string;
+  boxes: DinoDetectionBox[];
+};
+
 type ImageSize = {
   width: number;
   height: number;
@@ -23,6 +30,15 @@ export type Sam2PromptBox = {
   y0: number;
   x1: number;
   y1: number;
+};
+
+export type DinoDetectionBox = {
+  id: string;
+  label: string;
+  dinoLabel?: string;
+  score: number;
+  box: Sam2PromptBox;
+  area?: number;
 };
 
 export type Sam2SegmentResult = {
@@ -106,6 +122,31 @@ export async function segmentImageWithSam2(
       width: data.cutoutWidth,
       height: data.cutoutHeight,
     };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+export async function detectObjectsWithDino(uri: string): Promise<DetectionResponse> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+  try {
+    const imageBlob = await imageUriToBlob(uri);
+    const response = await fetch(`${SAM2_SERVER_URL}/detect`, {
+      method: "POST",
+      headers: {
+        "Content-Type": imageBlob.type || "application/octet-stream",
+      },
+      body: imageBlob as unknown as BodyInit,
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Grounding DINO server responded with ${response.status}`);
+    }
+
+    return (await response.json()) as DetectionResponse;
   } finally {
     clearTimeout(timeoutId);
   }

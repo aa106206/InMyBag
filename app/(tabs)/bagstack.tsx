@@ -19,6 +19,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Brand } from "@/constants/theme";
 import {
+  detectObjectsWithDino,
+  DinoDetectionBox,
   getSam2ServerUrl,
   Sam2PromptBox,
   Sam2SegmentResult,
@@ -503,8 +505,12 @@ function getOverlayBox(box: Sam2PromptBox, imageSize: ObjectSize, imageFrame: Re
 function SegmentPreviewModal({
   photo,
   promptBox,
+  detectionBoxes,
+  selectedDetectionId,
   segmentedResult,
+  isDetecting,
   isSegmenting,
+  onSelectDetection,
   onMoveBox,
   onScaleBox,
   onCancel,
@@ -514,8 +520,12 @@ function SegmentPreviewModal({
 }: {
   photo: PendingPhoto | null;
   promptBox: Sam2PromptBox | null;
+  detectionBoxes: DinoDetectionBox[];
+  selectedDetectionId: string | null;
   segmentedResult: Sam2SegmentResult | null;
+  isDetecting: boolean;
   isSegmenting: boolean;
+  onSelectDetection: (box: DinoDetectionBox) => void;
   onMoveBox: (dx: number, dy: number) => void;
   onScaleBox: (scale: number) => void;
   onCancel: () => void;
@@ -574,7 +584,9 @@ function SegmentPreviewModal({
           <Text style={styles.previewSubtitle}>
             {hasSegmentedResult
               ? "분리된 객체가 괜찮으면 가방에 추가해요."
-              : "박스를 물건에 맞춘 뒤 객체만 분리해요."}
+              : isDetecting
+                ? "Grounding DINO가 이미지 속 객체 후보를 찾고 있어요."
+                : "DINO가 찾은 박스 중 하나를 고르고 필요하면 조정해요."}
           </Text>
         </View>
 
@@ -629,6 +641,40 @@ function SegmentPreviewModal({
             }}
           >
             <Image source={{ uri: photo.uri }} style={styles.previewImage} resizeMode="contain" />
+            {imageFrame.width > 0
+              ? detectionBoxes.map((detectedBox) => {
+                  const candidateBox = getOverlayBox(detectedBox.box, photo, imageFrame);
+                  const isSelected = detectedBox.id === selectedDetectionId;
+
+                  return (
+                    <Pressable
+                      key={detectedBox.id}
+                      style={[
+                        styles.detectedBox,
+                        isSelected ? styles.detectedBoxSelected : undefined,
+                        {
+                          left: candidateBox.x,
+                          top: candidateBox.y,
+                          width: candidateBox.width,
+                          height: candidateBox.height,
+                        },
+                      ]}
+                      onPress={() => onSelectDetection(detectedBox)}
+                    >
+                      <View
+                        style={[
+                          styles.detectedBoxLabel,
+                          isSelected ? styles.detectedBoxLabelSelected : undefined,
+                        ]}
+                      >
+                        <Text style={styles.detectedBoxLabelText}>
+                          {detectedBox.label} {Math.round(detectedBox.score * 100)}%
+                        </Text>
+                      </View>
+                    </Pressable>
+                  );
+                })
+              : null}
             {imageFrame.width > 0 ? (
               <View
                 style={[
@@ -655,6 +701,11 @@ function SegmentPreviewModal({
         )}
 
         <View style={styles.previewControls}>
+          {isDetecting ? (
+            <View style={styles.detectingNotice}>
+              <Text style={styles.detectingNoticeText}>객체 후보 탐지 중...</Text>
+            </View>
+          ) : null}
           {!segmentedResult ? (
             <View style={styles.sizeControls}>
               <Pressable
@@ -705,13 +756,13 @@ function SegmentPreviewModal({
                   style={[
                     styles.previewButton,
                     styles.previewPrimaryButton,
-                    isSegmenting && styles.disabledButton,
+                    (isDetecting || isSegmenting) && styles.disabledButton,
                   ]}
                   onPress={onConfirm}
-                  disabled={isSegmenting}
+                  disabled={isDetecting || isSegmenting}
                 >
                   <Text style={styles.previewPrimaryText}>
-                    {isSegmenting ? "분리 중..." : "이 박스로 Segment"}
+                    {isDetecting ? "탐지 중..." : isSegmenting ? "분리 중..." : "이 박스로 Segment"}
                   </Text>
                 </Pressable>
               </>
@@ -888,9 +939,12 @@ export default function BagStackScreen() {
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
   const [frame, setFrame] = useState(0);
   const [showHistory, setShowHistory] = useState(false);
+  const [isDetecting, setIsDetecting] = useState(false);
   const [isSegmenting, setIsSegmenting] = useState(false);
   const [pendingPhoto, setPendingPhoto] = useState<PendingPhoto | null>(null);
   const [promptBox, setPromptBox] = useState<Sam2PromptBox | null>(null);
+  const [detectionBoxes, setDetectionBoxes] = useState<DinoDetectionBox[]>([]);
+  const [selectedDetectionId, setSelectedDetectionId] = useState<string | null>(null);
   const [segmentedPreview, setSegmentedPreview] = useState<Sam2SegmentResult | null>(null);
 
   const syncWalls = useCallback((width: number, height: number) => {
@@ -1042,8 +1096,36 @@ export default function BagStackScreen() {
 
       setPendingPhoto(nextPhoto);
       setPromptBox(getDefaultPromptBox(width, height));
+      setDetectionBoxes([]);
+      setSelectedDetectionId(null);
       setSegmentedPreview(null);
+
+      setIsDetecting(true);
+      try {
+        const detection = await detectObjectsWithDino(asset.uri);
+        const boxes = detection.boxes ?? [];
+        setDetectionBoxes(boxes);
+
+        if (boxes.length > 0) {
+          setSelectedDetectionId(boxes[0].id);
+          setPromptBox(boxes[0].box);
+        }
+      } catch (error) {
+        console.warn("Grounding DINO detection failed. Falling back to default bbox.", error);
+        Alert.alert(
+          "객체 후보 탐지 실패",
+          "Grounding DINO가 bbox 후보를 찾지 못해서 기본 박스를 사용해요.",
+        );
+      } finally {
+        setIsDetecting(false);
+      }
     }
+  }, []);
+
+  const selectDetectionBox = useCallback((box: DinoDetectionBox) => {
+    setSelectedDetectionId(box.id);
+    setPromptBox(box.box);
+    setSegmentedPreview(null);
   }, []);
 
   const movePromptBox = useCallback(
@@ -1095,6 +1177,8 @@ export default function BagStackScreen() {
 
     setPendingPhoto(null);
     setPromptBox(null);
+    setDetectionBoxes([]);
+    setSelectedDetectionId(null);
     setSegmentedPreview(null);
   }, [isSegmenting]);
 
@@ -1138,6 +1222,8 @@ export default function BagStackScreen() {
     });
     setPendingPhoto(null);
     setPromptBox(null);
+    setDetectionBoxes([]);
+    setSelectedDetectionId(null);
     setSegmentedPreview(null);
   }, [segmentedPreview, spawnPhoto]);
 
@@ -1146,8 +1232,12 @@ export default function BagStackScreen() {
       <SegmentPreviewModal
         photo={pendingPhoto}
         promptBox={promptBox}
+        detectionBoxes={detectionBoxes}
+        selectedDetectionId={selectedDetectionId}
         segmentedResult={segmentedPreview}
+        isDetecting={isDetecting}
         isSegmenting={isSegmenting}
+        onSelectDetection={selectDetectionBox}
         onMoveBox={movePromptBox}
         onScaleBox={scaleCurrentPromptBox}
         onCancel={cancelSegmentPreview}
@@ -1434,6 +1524,48 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: Brand.primary,
     backgroundColor: "rgba(255, 158, 187, 0.14)",
+  },
+  detectedBox: {
+    position: "absolute",
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.92)",
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
+  detectedBoxSelected: {
+    borderColor: Brand.primary,
+    backgroundColor: "rgba(255, 158, 187, 0.16)",
+  },
+  detectedBoxLabel: {
+    position: "absolute",
+    left: 6,
+    top: -30,
+    maxWidth: 180,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: "rgba(0,0,0,0.72)",
+  },
+  detectedBoxLabelSelected: {
+    backgroundColor: Brand.primary,
+  },
+  detectedBoxLabelText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  detectingNotice: {
+    marginBottom: 12,
+    paddingVertical: 10,
+    alignItems: "center",
+    borderRadius: 8,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+  },
+  detectingNoticeText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "900",
   },
   promptLabel: {
     position: "absolute",
