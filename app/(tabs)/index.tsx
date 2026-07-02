@@ -1,8 +1,6 @@
 import { Accelerometer } from 'expo-sensors';
-import { LinearGradient } from 'expo-linear-gradient';
 import Matter, { Bodies, Body, Engine, World } from 'matter-js';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import MaskedView from '@react-native-masked-view/masked-view';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import {
   Image,
@@ -23,7 +21,7 @@ import { Brand } from '@/constants/theme';
 
 const WALL_THICKNESS = 70;
 const FIXED_TIMESTEP = 1000 / 60;
-const TITLE_GRADIENT = ['#FFF3E6', '#F8C8DC', '#C7B8EA'] as const;
+const FEED_LOGO = require('@/assets/images/snapbag-feed-logo.png');
 
 type BagPhotoSeed = {
   id: string;
@@ -61,7 +59,7 @@ type WorldSize = {
 type FriendBag = {
   id: string;
   user: string;
-  avatar: string;
+  avatar: ImageSourcePropType;
   photos: BagPhotoSeed[];
 };
 
@@ -94,7 +92,7 @@ const friendBags: FriendBag[] = [
   {
     id: 'james',
     user: 'james',
-    avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=240',
+    avatar: require('@/assets/images/friend-profiles/james-default.png'),
     photos: [
       {
         id: 'laptop',
@@ -153,7 +151,7 @@ const friendBags: FriendBag[] = [
   {
     id: 'hyunbin',
     user: 'hyunbin',
-    avatar: 'https://images.unsplash.com/photo-1527980965255-d3b416303d12?w=240',
+    avatar: { uri: 'https://images.unsplash.com/photo-1527980965255-d3b416303d12?w=240' },
     photos: [
       {
         id: 'shoes',
@@ -212,7 +210,7 @@ const friendBags: FriendBag[] = [
   {
     id: 'dongjun',
     user: 'dongjun',
-    avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=240',
+    avatar: require('@/assets/images/friend-profiles/dongjun-dog.png'),
     photos: [
       {
         id: 'tablet',
@@ -270,8 +268,8 @@ const friendBags: FriendBag[] = [
   },
   {
     id: 'yuna',
-    user: 'yuna',
-    avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=240',
+    user: 'y.yuna',
+    avatar: require('@/assets/images/friend-profiles/y-yuna-character.png'),
     photos: [
       {
         id: 'camera',
@@ -621,24 +619,10 @@ function PhotoInfoModal({
   );
 }
 
-function GradientBrandTitle() {
+function FeedBrandLogo() {
   return (
-    <View style={styles.feedTitleWrap}>
-      <MaskedView
-        style={styles.feedTitleMask}
-        maskElement={
-          <View style={styles.feedTitleMaskContent}>
-            <Text style={styles.feedTitle}>SnapBag</Text>
-          </View>
-        }
-      >
-        <LinearGradient
-          colors={TITLE_GRADIENT}
-          start={{ x: 0, y: 0.5 }}
-          end={{ x: 1, y: 0.5 }}
-          style={styles.feedTitleGradient}
-        />
-      </MaskedView>
+    <View style={styles.feedLogoWrap}>
+      <Image source={FEED_LOGO} style={styles.feedLogoImage} resizeMode="contain" />
     </View>
   );
 }
@@ -671,7 +655,7 @@ function FriendStoryRail({
             onPress={() => onSelectFriend(friend.id)}
           >
             <View style={[styles.storyAvatarRing, isSelected ? styles.storyAvatarRingActive : undefined]}>
-              <Image source={{ uri: friend.avatar }} style={styles.storyAvatar} />
+              <Image source={friend.avatar} style={styles.storyAvatar} />
             </View>
             <Text numberOfLines={1} ellipsizeMode="tail" style={styles.storyUser}>
               {friend.user}
@@ -878,50 +862,54 @@ function FriendBagPage({
 
   return (
     <View style={styles.bagPanel}>
-      <View style={styles.bagIdentity}>
-        <Image source={{ uri: bag.avatar }} style={styles.bagIdentityAvatar} />
-        <Text numberOfLines={1} ellipsizeMode="tail" style={styles.bagIdentityUser}>
-          @{bag.user}
-        </Text>
-      </View>
-      <Pressable
-        style={[styles.modeToggle, styles.bagModeToggle, showHistory ? styles.modeToggleActive : undefined]}
-        onPress={() => setShowHistory((value) => !value)}
-      >
-        <View style={[styles.toggleThumb, showHistory ? styles.toggleThumbActive : undefined]} />
-      </Pressable>
-      {showHistory ? (
-        <ScrollView
-          style={styles.history}
-          contentContainerStyle={styles.historyContent}
-          showsVerticalScrollIndicator={false}
+      <View style={styles.bagPanelHeader}>
+        <View style={styles.bagIdentity}>
+          <Image source={bag.avatar} style={styles.bagIdentityAvatar} />
+          <Text numberOfLines={1} ellipsizeMode="tail" style={styles.bagIdentityUser}>
+            @{bag.user}
+          </Text>
+        </View>
+        <Pressable
+          style={[styles.modeToggle, styles.bagModeToggle, showHistory ? styles.modeToggleActive : undefined]}
+          onPress={() => setShowHistory((value) => !value)}
         >
-          <View style={styles.historyGrid}>
-            {historyItems.map((item) => (
-              <FriendHistoryCard key={item.id} item={item} />
+          <View style={[styles.toggleThumb, showHistory ? styles.toggleThumbActive : undefined]} />
+        </Pressable>
+      </View>
+      <View style={styles.bagPanelBody}>
+        {showHistory ? (
+          <ScrollView
+            style={styles.history}
+            contentContainerStyle={styles.historyContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.historyGrid}>
+              {historyItems.map((item) => (
+                <FriendHistoryCard key={item.id} item={item} />
+              ))}
+            </View>
+          </ScrollView>
+        ) : (
+          <View style={styles.canvas} onLayout={onCanvasLayout}>
+            {photos.map((photo) => (
+              (() => {
+                const photoKey = `${bag.id}-${photo.id}`;
+
+                return (
+                  <PhysicsPhoto
+                    key={photo.id}
+                    photo={photo}
+                    frame={frame}
+                    worldSize={worldSizeRef.current}
+                    onPhotoDragChange={onPhotoDragChange}
+                    onOpenPhotoInfo={() => onOpenPhotoInfo({ photo, photoKey })}
+                  />
+                );
+              })()
             ))}
           </View>
-        </ScrollView>
-      ) : (
-        <View style={styles.canvas} onLayout={onCanvasLayout}>
-          {photos.map((photo) => (
-            (() => {
-              const photoKey = `${bag.id}-${photo.id}`;
-
-              return (
-                <PhysicsPhoto
-                  key={photo.id}
-                  photo={photo}
-                  frame={frame}
-                  worldSize={worldSizeRef.current}
-                  onPhotoDragChange={onPhotoDragChange}
-                  onOpenPhotoInfo={() => onOpenPhotoInfo({ photo, photoKey })}
-                />
-              );
-            })()
-          ))}
-        </View>
-      )}
+        )}
+      </View>
     </View>
   );
 }
@@ -970,8 +958,8 @@ export default function HomeScreen() {
         }}
         onClose={() => setSelectedPhotoInfo(null)}
       />
-      <View style={[styles.feedHeader, { paddingTop: insets.top + 14 }]}>
-        <GradientBrandTitle />
+      <View style={[styles.feedHeader, { paddingTop: insets.top + 6 }]}>
+        <FeedBrandLogo />
         <FriendStoryRail
           friends={friendBags}
           selectedFriendId={selectedFriendId}
@@ -1123,43 +1111,20 @@ const styles = StyleSheet.create({
     backgroundColor: Brand.surface,
     borderBottomWidth: 0,
   },
-  feedTitleWrap: {
-    height: 76,
+  feedLogoWrap: {
+    height: 52,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  feedTitleMask: {
-    width: 300,
-    height: 76,
-  },
-  feedTitleMaskContent: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
-  },
-  feedTitleGradient: {
-    flex: 1,
-  },
-  feedTitle: {
-    color: '#000000',
-    fontFamily: Platform.select({
-      ios: 'Snell Roundhand',
-      android: 'casual',
-      default: 'cursive',
-    }),
-    fontSize: 39,
-    fontWeight: '900',
-    fontStyle: 'italic',
-    letterSpacing: 0,
-    lineHeight: 68,
-    textAlign: 'center',
+  feedLogoImage: {
+    width: 226,
+    height: 46,
   },
   storyContent: {
     gap: 14,
     paddingHorizontal: 14,
-    paddingTop: 14,
-    paddingBottom: 12,
+    paddingTop: 8,
+    paddingBottom: 10,
   },
   storyItem: {
     width: 66,
@@ -1199,26 +1164,38 @@ const styles = StyleSheet.create({
   bagPanel: {
     flex: 1,
     marginHorizontal: 14,
-    marginTop: 12,
+    marginTop: 8,
     marginBottom: 12,
     overflow: 'hidden',
     borderRadius: 8,
     borderWidth: 2,
     borderColor: Brand.border,
+    backgroundColor: Brand.surface,
+  },
+  bagPanelHeader: {
+    minHeight: 50,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    backgroundColor: Brand.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.92)',
+  },
+  bagPanelBody: {
+    flex: 1,
     backgroundColor: Brand.secondary,
   },
   bagIdentity: {
-    position: 'absolute',
-    top: 13,
-    left: 13,
-    zIndex: 30,
-    maxWidth: '58%',
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     paddingRight: 10,
     borderRadius: 999,
-    backgroundColor: 'rgba(255, 255, 255, 0.74)',
+    backgroundColor: Brand.surface,
   },
   bagIdentityAvatar: {
     width: 34,
@@ -1258,10 +1235,6 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-end',
   },
   bagModeToggle: {
-    position: 'absolute',
-    top: 14,
-    right: 14,
-    zIndex: 30,
     backgroundColor: Brand.secondary,
   },
   history: {
@@ -1269,7 +1242,7 @@ const styles = StyleSheet.create({
     backgroundColor: Brand.secondary,
   },
   historyContent: {
-    paddingTop: 54,
+    paddingTop: 12,
     paddingHorizontal: 10,
     paddingBottom: 18,
   },
