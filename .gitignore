@@ -41,3 +41,11 @@ app-example
 # generated native folders
 /ios
 /android
+
+# Python / AI server
+sam2-server/venv/
+sam2-server/sam2/venv/
+sam2-server/sam2/checkpoints/
+__pycache__/
+*.pyc
+.DS_Store
