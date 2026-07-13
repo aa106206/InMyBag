@@ -15,6 +15,8 @@ type AuthContextValue = {
   signIn: (credentials: AuthCredentials) => Promise<void>;
   signUp: (credentials: AuthCredentials) => Promise<void>;
   signOut: () => Promise<void>;
+  updateEmail: (email: string) => Promise<void>;
+  updatePassword: (password: string) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -87,6 +89,26 @@ export function AuthProvider({ children }: PropsWithChildren) {
       },
       async signOut() {
         const { error } = await supabase.auth.signOut();
+
+        if (error) {
+          throw error;
+        }
+      },
+      async updateEmail(email) {
+        assertSupabaseConfigured();
+        const { error } = await supabase.auth.updateUser({
+          email: email.trim(),
+        });
+
+        if (error) {
+          throw error;
+        }
+      },
+      async updatePassword(password) {
+        assertSupabaseConfigured();
+        const { error } = await supabase.auth.updateUser({
+          password,
+        });
 
         if (error) {
           throw error;

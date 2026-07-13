@@ -2,7 +2,20 @@ import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Brand } from '@/constants/theme';
@@ -12,6 +25,8 @@ type SettingsAction = {
   id: string;
   label: string;
 };
+
+type AccountEditMode = 'email' | 'password';
 
 const accountActions: SettingsAction[] = [
   { id: 'password', label: '비밀번호 변경' },
@@ -31,6 +46,34 @@ const supportActions: SettingsAction[] = [
 
 const defaultProfileImage =
   'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400';
+const SNAPBAG_INVITE_URL = 'https://snapbag.app/download';
+
+function isValidEmail(email: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+}
+
+function getAccountErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : '';
+  const lowerMessage = message.toLowerCase();
+
+  if (lowerMessage.includes('rate limit') || lowerMessage.includes('too many')) {
+    return '요청이 너무 많아요. 잠시 후 다시 시도해 주세요.';
+  }
+
+  if (lowerMessage.includes('different from the old email') || lowerMessage.includes('same email')) {
+    return '현재 이메일과 다른 이메일을 입력해 주세요.';
+  }
+
+  if (lowerMessage.includes('password') && lowerMessage.includes('characters')) {
+    return '비밀번호는 최소 6자 이상이어야 해요.';
+  }
+
+  if (lowerMessage.includes('jwt') || lowerMessage.includes('session')) {
+    return '로그인 세션이 만료됐어요. 다시 로그인한 뒤 시도해 주세요.';
+  }
+
+  return message || '계정 정보를 변경하는 중 문제가 발생했어요.';
+}
 
 function SettingsGroup({
   actions,
@@ -63,10 +106,98 @@ function SettingsGroup({
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
-  const { signOut, user } = useAuth();
+  const { signOut, updateEmail, updatePassword, user } = useAuth();
   const displayName = user?.email ?? 'SnapBag User';
   const [profileImageUri, setProfileImageUri] = useState(defaultProfileImage);
   const [showGuide, setShowGuide] = useState(false);
+  const [accountEditMode, setAccountEditMode] = useState<AccountEditMode | null>(null);
+  const [accountEmail, setAccountEmail] = useState(user?.email ?? '');
+  const [accountPassword, setAccountPassword] = useState('');
+  const [accountPasswordConfirm, setAccountPasswordConfirm] = useState('');
+  const [accountMessage, setAccountMessage] = useState('');
+  const [accountError, setAccountError] = useState('');
+  const [isAccountSubmitting, setIsAccountSubmitting] = useState(false);
+
+  const closeAccountModal = () => {
+    if (isAccountSubmitting) {
+      return;
+    }
+
+    setAccountEditMode(null);
+    setAccountEmail(user?.email ?? '');
+    setAccountPassword('');
+    setAccountPasswordConfirm('');
+    setAccountMessage('');
+    setAccountError('');
+  };
+
+  const openAccountModal = (mode: AccountEditMode) => {
+    setAccountEditMode(mode);
+    setAccountEmail(user?.email ?? '');
+    setAccountPassword('');
+    setAccountPasswordConfirm('');
+    setAccountMessage('');
+    setAccountError('');
+  };
+
+  const handleAccountAction = (action: SettingsAction) => {
+    if (action.id === 'email' || action.id === 'password') {
+      openAccountModal(action.id);
+    }
+  };
+
+  const submitAccountUpdate = async () => {
+    if (!accountEditMode || isAccountSubmitting) {
+      return;
+    }
+
+    setAccountMessage('');
+    setAccountError('');
+
+    if (accountEditMode === 'email') {
+      const nextEmail = accountEmail.trim();
+
+      if (!isValidEmail(nextEmail)) {
+        setAccountError('올바른 이메일 주소를 입력해 주세요.');
+        return;
+      }
+
+      if (nextEmail === user?.email) {
+        setAccountError('현재 이메일과 다른 이메일을 입력해 주세요.');
+        return;
+      }
+    }
+
+    if (accountEditMode === 'password') {
+      if (accountPassword.length < 6) {
+        setAccountError('비밀번호는 최소 6자 이상이어야 해요.');
+        return;
+      }
+
+      if (accountPassword !== accountPasswordConfirm) {
+        setAccountError('비밀번호 확인이 일치하지 않아요.');
+        return;
+      }
+    }
+
+    setIsAccountSubmitting(true);
+
+    try {
+      if (accountEditMode === 'email') {
+        await updateEmail(accountEmail);
+        setAccountMessage('확인 메일을 보냈어요. 새 이메일의 메일함에서 변경을 완료해 주세요.');
+      } else {
+        await updatePassword(accountPassword);
+        setAccountMessage('비밀번호가 변경됐어요.');
+        setAccountPassword('');
+        setAccountPasswordConfirm('');
+      }
+    } catch (error) {
+      setAccountError(getAccountErrorMessage(error));
+    } finally {
+      setIsAccountSubmitting(false);
+    }
+  };
 
   const handleSupportAction = async (action: SettingsAction) => {
     if (action.id === 'guide') {
@@ -79,7 +210,24 @@ export default function SettingsScreen() {
     }
   };
 
-  const handleFriendAction = (action: SettingsAction) => {
+  const shareInviteLink = async () => {
+    try {
+      await Share.share({
+        title: 'SnapBag 친구 초대',
+        message: `SnapBag에서 내 가방을 같이 구경해요!\n${SNAPBAG_INVITE_URL}`,
+        url: SNAPBAG_INVITE_URL,
+      });
+    } catch {
+      Alert.alert('공유 실패', '초대 메시지를 여는 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요.');
+    }
+  };
+
+  const handleFriendAction = async (action: SettingsAction) => {
+    if (action.id === 'invite') {
+      await shareInviteLink();
+      return;
+    }
+
     if (action.id === 'friends') {
       router.push('/friend-management');
     }
@@ -139,6 +287,95 @@ export default function SettingsScreen() {
 
   return (
     <>
+      <Modal
+        visible={Boolean(accountEditMode)}
+        transparent
+        animationType="fade"
+        onRequestClose={closeAccountModal}
+      >
+        <KeyboardAvoidingView
+          style={styles.accountOverlay}
+          behavior={Platform.select({ ios: 'padding', default: undefined })}
+        >
+          <View style={styles.accountCard}>
+            <View style={styles.accountHeader}>
+              <Text style={styles.accountTitle}>
+                {accountEditMode === 'email' ? '이메일 변경' : '비밀번호 변경'}
+              </Text>
+              <Pressable
+                style={styles.accountCloseButton}
+                onPress={closeAccountModal}
+                disabled={isAccountSubmitting}
+                hitSlop={10}
+              >
+                <Text style={styles.accountCloseText}>×</Text>
+              </Pressable>
+            </View>
+            {accountEditMode === 'email' ? (
+              <>
+                <Text style={styles.accountDescription}>
+                  새 이메일로 확인 메일이 전송돼요. 메일함에서 인증을 완료하면 이메일이 변경됩니다.
+                </Text>
+                <TextInput
+                  value={accountEmail}
+                  onChangeText={setAccountEmail}
+                  placeholder="새 이메일"
+                  placeholderTextColor={Brand.muted}
+                  keyboardType="email-address"
+                  textContentType="emailAddress"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  editable={!isAccountSubmitting}
+                  style={styles.accountInput}
+                />
+              </>
+            ) : (
+              <>
+                <Text style={styles.accountDescription}>
+                  새 비밀번호는 6자 이상으로 입력해 주세요.
+                </Text>
+                <TextInput
+                  value={accountPassword}
+                  onChangeText={setAccountPassword}
+                  placeholder="새 비밀번호"
+                  placeholderTextColor={Brand.muted}
+                  secureTextEntry
+                  textContentType="newPassword"
+                  editable={!isAccountSubmitting}
+                  style={styles.accountInput}
+                />
+                <TextInput
+                  value={accountPasswordConfirm}
+                  onChangeText={setAccountPasswordConfirm}
+                  placeholder="새 비밀번호 확인"
+                  placeholderTextColor={Brand.muted}
+                  secureTextEntry
+                  textContentType="newPassword"
+                  editable={!isAccountSubmitting}
+                  style={styles.accountInput}
+                />
+              </>
+            )}
+            {accountMessage ? <Text style={styles.accountNotice}>{accountMessage}</Text> : null}
+            {accountError ? <Text style={styles.accountError}>{accountError}</Text> : null}
+            <Pressable
+              style={({ pressed }) => [
+                styles.accountSubmitButton,
+                pressed ? styles.accountSubmitButtonPressed : undefined,
+                isAccountSubmitting ? styles.accountSubmitButtonDisabled : undefined,
+              ]}
+              onPress={submitAccountUpdate}
+              disabled={isAccountSubmitting}
+            >
+              {isAccountSubmitting ? (
+                <ActivityIndicator color={Brand.surface} />
+              ) : (
+                <Text style={styles.accountSubmitText}>변경하기</Text>
+              )}
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
       <Modal visible={showGuide} transparent animationType="fade" onRequestClose={() => setShowGuide(false)}>
         <View style={styles.guideOverlay}>
           <View style={styles.guideCard}>
@@ -214,7 +451,7 @@ export default function SettingsScreen() {
           <Text style={styles.profileName}>{displayName}</Text>
         </View>
 
-        <SettingsGroup actions={accountActions} />
+        <SettingsGroup actions={accountActions} onActionPress={handleAccountAction} />
         <SettingsGroup actions={friendActions} onActionPress={handleFriendAction} />
         <SettingsGroup actions={supportActions} onActionPress={handleSupportAction} />
       </ScrollView>
@@ -230,6 +467,96 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 18,
     gap: 18,
+  },
+  accountOverlay: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 22,
+    backgroundColor: 'rgba(17, 24, 39, 0.42)',
+  },
+  accountCard: {
+    width: '100%',
+    maxWidth: 360,
+    gap: 12,
+    padding: 18,
+    borderRadius: 8,
+    backgroundColor: Brand.surface,
+    borderWidth: 1,
+    borderColor: Brand.border,
+  },
+  accountHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  accountTitle: {
+    flex: 1,
+    color: Brand.text,
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  accountCloseButton: {
+    width: 30,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 15,
+    backgroundColor: Brand.surfaceWarm,
+  },
+  accountCloseText: {
+    color: Brand.text,
+    fontSize: 24,
+    lineHeight: 26,
+    fontWeight: '900',
+  },
+  accountDescription: {
+    color: Brand.muted,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '700',
+  },
+  accountInput: {
+    height: 48,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    backgroundColor: Brand.secondary,
+    borderWidth: 1,
+    borderColor: Brand.border,
+    color: Brand.text,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  accountNotice: {
+    color: '#166534',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
+  },
+  accountError: {
+    color: '#B42318',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
+  },
+  accountSubmitButton: {
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+    backgroundColor: Brand.text,
+  },
+  accountSubmitButtonPressed: {
+    opacity: 0.78,
+  },
+  accountSubmitButtonDisabled: {
+    opacity: 0.58,
+  },
+  accountSubmitText: {
+    color: Brand.surface,
+    fontSize: 15,
+    fontWeight: '900',
   },
   guideOverlay: {
     flex: 1,
