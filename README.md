@@ -213,6 +213,21 @@ npx expo start
 
 ## 9. 자주 나는 문제
 
+### 분리한 객체가 Supabase Storage에 저장되지 않음
+
+Supabase Dashboard의 SQL Editor에서 아래 마이그레이션 파일 전체를 실행합니다.
+
+```text
+supabase/migrations/202607170001_bag_item_persistence.sql
+```
+
+적용하면 private `bag-items` Storage 버킷, 업로드/조회/삭제 RLS 정책,
+`bag_items` 메타데이터 컬럼이 생성됩니다. 이후 Expo 개발 서버를 캐시 초기화해 다시 실행합니다.
+
+```bash
+npx expo start --clear
+```
+
 ### `No such file or directory: sam2.1_hiera_large.pt`
 
 SAM2 checkpoint가 없는 상태입니다.
