@@ -19,6 +19,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Brand } from "@/constants/theme";
+import { useAuth } from "@/hooks/use-auth";
+import { deleteBagItem, loadCurrentBagItems, saveBagItem } from "@/services/bag-items";
 import {
   detectObjectsWithDino,
   DinoDetectionBox,
@@ -58,6 +60,8 @@ type ObjectSize = {
 type PhotoItem = ObjectSize & {
   id: string;
   uri: string;
+  dbId?: string;
+  storagePath?: string | null;
   body: Matter.Body;
 };
 
@@ -500,6 +504,7 @@ function SegmentPreviewModal({
   onConfirm,
   onRetune,
   onAccept,
+  isSaving,
 }: {
   photo: PendingPhoto | null;
   promptBox: Sam2PromptBox | null;
@@ -514,6 +519,7 @@ function SegmentPreviewModal({
   onConfirm: () => void;
   onRetune: () => void;
   onAccept: () => void;
+  isSaving: boolean;
 }) {
   const [previewSize, setPreviewSize] = useState<ObjectSize>({ width: 0, height: 0 });
   const dragStartRef = useRef({ x: 0, y: 0 });
@@ -692,11 +698,17 @@ function SegmentPreviewModal({
                   <Text style={styles.previewSecondaryText}>물건 다시 선택</Text>
                 </Pressable>
                 <Pressable
-                  style={[styles.previewButton, styles.previewPrimaryButton]}
+                  style={[
+                    styles.previewButton,
+                    styles.previewPrimaryButton,
+                    isSaving && styles.disabledButton,
+                  ]}
                   onPress={onAccept}
-                  disabled={isSegmenting}
+                  disabled={isSegmenting || isSaving}
                 >
-                  <Text style={styles.previewPrimaryText}>가방에 추가</Text>
+                  <Text style={styles.previewPrimaryText}>
+                    {isSaving ? "저장 중..." : "가방에 추가"}
+                  </Text>
                 </Pressable>
               </>
             ) : (
@@ -890,15 +902,19 @@ function HistoryCard({ item }: { item: BagHistoryItem }) {
 
 export default function BagStackScreen() {
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const engineRef = useRef(Engine.create({ gravity: { x: 0, y: 0, scale: 0.002 } }));
   const wallsRef = useRef<Matter.Body[]>([]);
   const worldSizeRef = useRef<WorldSize>({ width: 0, height: 0 });
 
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
+  const [canvasSize, setCanvasSize] = useState<WorldSize>({ width: 0, height: 0 });
   const [frame, setFrame] = useState(0);
   const [showHistory, setShowHistory] = useState(false);
   const [isDetecting, setIsDetecting] = useState(false);
   const [isSegmenting, setIsSegmenting] = useState(false);
+  const [isLoadingSavedItems, setIsLoadingSavedItems] = useState(false);
+  const [isSavingBagItem, setIsSavingBagItem] = useState(false);
   const [pendingPhoto, setPendingPhoto] = useState<PendingPhoto | null>(null);
   const [promptBox, setPromptBox] = useState<Sam2PromptBox | null>(null);
   const [detectionBoxes, setDetectionBoxes] = useState<DinoDetectionBox[]>([]);
@@ -921,9 +937,17 @@ export default function BagStackScreen() {
     (event: LayoutChangeEvent) => {
       const { width, height } = event.nativeEvent.layout;
       syncWalls(width, height);
+      setCanvasSize({ width, height });
     },
     [syncWalls],
   );
+
+  const clearPhotos = useCallback(() => {
+    setPhotos((current) => {
+      current.forEach((photo) => World.remove(engineRef.current.world, photo.body));
+      return [];
+    });
+  }, []);
 
   useEffect(() => {
     const engine = engineRef.current;
@@ -983,10 +1007,14 @@ export default function BagStackScreen() {
   }, []);
 
   const spawnPhoto = useCallback(
-    (uri: string, imageSize?: ObjectSize) => {
+    (
+      uri: string,
+      imageSize?: ObjectSize,
+      savedItem?: { id?: string; dbId?: string; storagePath?: string | null },
+    ): string | null => {
       const { width: worldWidth, height: worldHeight } = worldSizeRef.current;
       if (worldWidth <= 0 || worldHeight <= 0) {
-        return;
+        return null;
       }
 
       const displaySize = getObjectDisplaySize(imageSize?.width, imageSize?.height);
@@ -1016,21 +1044,73 @@ export default function BagStackScreen() {
       World.add(engineRef.current.world, body);
 
       const item: PhotoItem = {
-        id: `${Date.now()}-${body.id}`,
+        id: savedItem?.id ?? `${Date.now()}-${body.id}`,
         uri,
+        dbId: savedItem?.dbId,
+        storagePath: savedItem?.storagePath,
         width: displaySize.width,
         height: displaySize.height,
         body,
       };
 
       setPhotos((prev) => [...prev, item]);
+      return item.id;
     },
     [],
   );
 
+  useEffect(() => {
+    if (canvasSize.width <= 0 || canvasSize.height <= 0) {
+      return;
+    }
+
+    if (!user) {
+      clearPhotos();
+      return;
+    }
+
+    let cancelled = false;
+    clearPhotos();
+    setIsLoadingSavedItems(true);
+
+    loadCurrentBagItems(user)
+      .then((items) => {
+        if (cancelled) {
+          return;
+        }
+
+        items.forEach((item) => {
+          spawnPhoto(
+            item.imageUrl,
+            { width: item.width, height: item.height },
+            { id: item.id, dbId: item.id, storagePath: item.storagePath },
+          );
+        });
+      })
+      .catch((error) => {
+        console.warn("Saved bag items load failed.", error);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoadingSavedItems(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canvasSize.height, canvasSize.width, clearPhotos, spawnPhoto, user]);
+
   const deletePhoto = useCallback((photoToDelete: PhotoItem) => {
     World.remove(engineRef.current.world, photoToDelete.body);
     setPhotos((current) => current.filter((photo) => photo.id !== photoToDelete.id));
+
+    if (photoToDelete.dbId) {
+      deleteBagItem(photoToDelete.dbId, photoToDelete.storagePath).catch((error) => {
+        console.warn("Saved bag item delete failed.", error);
+        Alert.alert("삭제 실패", "서버에서 사진을 삭제하지 못했어요.");
+      });
+    }
   }, []);
 
   const pickFromCamera = useCallback(async () => {
@@ -1152,21 +1232,48 @@ export default function BagStackScreen() {
     setSegmentedPreview(null);
   }, [isSegmenting]);
 
-  const acceptSegmentedPreview = useCallback(() => {
+  const acceptSegmentedPreview = useCallback(async () => {
     if (!segmentedPreview) {
       return;
     }
 
-    spawnPhoto(segmentedPreview.uri, {
+    const imageSize = {
       width: segmentedPreview.width,
       height: segmentedPreview.height,
-    });
+    };
+    const localPhotoId = spawnPhoto(segmentedPreview.uri, imageSize);
+
     setPendingPhoto(null);
     setPromptBox(null);
     setDetectionBoxes([]);
     setSelectedDetectionId(null);
     setSegmentedPreview(null);
-  }, [segmentedPreview, spawnPhoto]);
+
+    if (!user || !localPhotoId) {
+      return;
+    }
+
+    setIsSavingBagItem(true);
+    try {
+      const savedItem = await saveBagItem(user, segmentedPreview.uri, imageSize);
+
+      setPhotos((current) =>
+        current.map((photo) =>
+          photo.id === localPhotoId
+            ? {
+                ...photo,
+                dbId: savedItem.id,
+                storagePath: savedItem.storagePath,
+              }
+            : photo,
+        ),
+      );
+    } catch (error) {
+      console.warn("Saved bag item upload failed.", error);
+    } finally {
+      setIsSavingBagItem(false);
+    }
+  }, [segmentedPreview, spawnPhoto, user]);
 
   return (
     <View style={styles.screen}>
@@ -1184,6 +1291,7 @@ export default function BagStackScreen() {
         onConfirm={confirmSegmentPreview}
         onRetune={retuneSegmentBox}
         onAccept={acceptSegmentedPreview}
+        isSaving={isSavingBagItem}
       />
 
       <View style={[styles.topBar, { paddingTop: insets.top + 12 }]}>
@@ -1214,7 +1322,7 @@ export default function BagStackScreen() {
       ) : (
         <>
           <View style={styles.canvas} onLayout={onCanvasLayout}>
-            {photos.length === 0 ? (
+            {photos.length === 0 && !isLoadingSavedItems ? (
               <View style={styles.emptyState}>
                 <Text style={styles.emptyTitle}>첫 번째 물건을 담아보세요</Text>
                 <Text style={styles.emptyText}>
@@ -1222,9 +1330,15 @@ export default function BagStackScreen() {
                 </Text>
               </View>
             ) : null}
-            {isSegmenting ? (
+            {isSegmenting || isSavingBagItem || isLoadingSavedItems ? (
               <View style={styles.segmentingBadge}>
-                <Text style={styles.segmentingText}>SAM2 분석 중...</Text>
+                <Text style={styles.segmentingText}>
+                  {isLoadingSavedItems
+                    ? "가방 불러오는 중..."
+                    : isSavingBagItem
+                      ? "가방 저장 중..."
+                      : "SAM2 분석 중..."}
+                </Text>
               </View>
             ) : null}
             {photos.map((photo) => (
@@ -1237,9 +1351,12 @@ export default function BagStackScreen() {
               />
             ))}
             <Pressable
-              style={[styles.shutterButton, isSegmenting && styles.disabledButton]}
+              style={[
+                styles.shutterButton,
+                (isSegmenting || isSavingBagItem) && styles.disabledButton,
+              ]}
               onPress={pickFromCamera}
-              disabled={isSegmenting}
+              disabled={isSegmenting || isSavingBagItem}
             >
               <View style={styles.shutterInner} />
             </Pressable>
