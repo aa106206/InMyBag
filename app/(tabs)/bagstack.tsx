@@ -419,6 +419,100 @@ function createWalls(width: number, height: number) {
   return [ground, leftWall, rightWall, topWall];
 }
 
+// 화면 위쪽에서 떨어지는 사진 물리 바디를 만든다. 최초 로딩과 화면 초기화에서 함께 쓴다.
+function createFallingPhotoBody(displaySize: ObjectSize, worldWidth: number): Matter.Body {
+  const halfWidth = displaySize.width / 2;
+  const halfHeight = displaySize.height / 2;
+  const spawnX =
+    halfWidth + Math.random() * Math.max(displaySize.width, worldWidth - displaySize.width);
+  const spawnY = halfHeight + WALL_THICKNESS / 2 + 8;
+
+  const body = Bodies.rectangle(spawnX, spawnY, displaySize.width, displaySize.height, {
+    label: "photo",
+    restitution: 0.28,
+    friction: 0.65,
+    frictionStatic: 0.85,
+    frictionAir: 0.035,
+    density: 0.0012,
+    chamfer: { radius: 2 },
+  });
+
+  (body as PhotoBody).photoSize = displaySize;
+  Body.setAngularVelocity(body, (Math.random() - 0.5) * 0.12);
+  Body.setVelocity(body, {
+    x: (Math.random() - 0.5) * 0.6,
+    y: 0.45,
+  });
+
+  return body;
+}
+
+const STUCK_DRAG_TIMEOUT_MS = 2000;
+// 릴리즈 속도 상한. 너무 빠르면 한 프레임에 벽을 뚫고 월드 밖으로 나갈 수 있다(터널링).
+const MAX_THROW_SPEED = 16;
+
+type PhotoBody = Matter.Body & {
+  dragHeartbeatAt?: number;
+  photoSize?: ObjectSize;
+};
+
+function markDragHeartbeat(body: Matter.Body) {
+  (body as PhotoBody).dragHeartbeatAt = Date.now();
+}
+
+function limitThrowSpeed(value: number) {
+  return Math.max(-MAX_THROW_SPEED, Math.min(MAX_THROW_SPEED, value));
+}
+
+// 드래그가 비정상적으로 끊겨 static(고정)으로 남은 사진을 감지해 즉시 다시 움직이게 한다.
+// 정상 드래그 중에는 grant/move에서 하트비트가 계속 갱신되므로 여기에 걸리지 않는다.
+function releaseBodyIfStuck(body: Matter.Body) {
+  if (body.label !== "photo" || !body.isStatic) {
+    return;
+  }
+
+  const heartbeatAt = (body as PhotoBody).dragHeartbeatAt ?? 0;
+  if (Date.now() - heartbeatAt > STUCK_DRAG_TIMEOUT_MS) {
+    Body.setStatic(body, false);
+    Body.setVelocity(body, { x: 0, y: 0 });
+    Body.setAngularVelocity(body, 0);
+  }
+}
+
+// 매 프레임 사진이 월드 안에 있도록 보정한다.
+// 벽을 뚫고 나갔거나 좌표가 NaN으로 오염된 사진을 즉시 되살린다.
+function keepBodyInsideWorld(body: Matter.Body, worldSize: WorldSize) {
+  if (body.label !== "photo" || worldSize.width <= 0 || worldSize.height <= 0) {
+    return;
+  }
+
+  const size = (body as PhotoBody).photoSize ?? {
+    width: DEFAULT_OBJECT_SIZE,
+    height: DEFAULT_OBJECT_SIZE,
+  };
+
+  if (
+    !Number.isFinite(body.position.x) ||
+    !Number.isFinite(body.position.y) ||
+    !Number.isFinite(body.angle)
+  ) {
+    Body.setPosition(body, {
+      x: worldSize.width / 2,
+      y: size.height / 2 + WALL_THICKNESS / 2 + 8,
+    });
+    Body.setAngle(body, 0);
+    Body.setVelocity(body, { x: 0, y: 0 });
+    Body.setAngularVelocity(body, 0);
+    return;
+  }
+
+  const nextPosition = clampPhotoPosition(body.position, size, worldSize);
+  if (nextPosition.x !== body.position.x || nextPosition.y !== body.position.y) {
+    Body.setPosition(body, nextPosition);
+    Body.setVelocity(body, { x: 0, y: 0 });
+  }
+}
+
 function clampPhotoPosition(
   position: { x: number; y: number },
   size: ObjectSize,
@@ -789,6 +883,7 @@ function PhysicsPhoto({
           setShowDeleteBubble(true);
         }, 1000);
         Body.setStatic(body, true);
+        markDragHeartbeat(body);
         Body.setVelocity(body, { x: 0, y: 0 });
         Body.setAngularVelocity(body, 0);
       },
@@ -799,6 +894,7 @@ function PhysicsPhoto({
         }
 
         const body = bodyRef.current;
+        markDragHeartbeat(body);
         Body.setPosition(
           body,
           clampPhotoPosition(
@@ -820,8 +916,8 @@ function PhysicsPhoto({
         );
         Body.setStatic(body, false);
         Body.setVelocity(body, {
-          x: gestureState.vx * 4,
-          y: gestureState.vy * 4,
+          x: limitThrowSpeed(gestureState.vx * 4),
+          y: limitThrowSpeed(gestureState.vy * 4),
         });
       },
       onPanResponderTerminate: () => {
@@ -958,6 +1054,10 @@ export default function BagStackScreen() {
       const delta = Math.min(time - lastTime, FIXED_TIMESTEP * 2);
       lastTime = time;
       Engine.update(engine, delta || FIXED_TIMESTEP);
+      engine.world.bodies.forEach((body) => {
+        releaseBodyIfStuck(body);
+        keepBodyInsideWorld(body, worldSizeRef.current);
+      });
       setFrame((value) => (value + 1) % 1000000);
       frameId = requestAnimationFrame(tick);
     };
@@ -1018,29 +1118,7 @@ export default function BagStackScreen() {
       }
 
       const displaySize = getObjectDisplaySize(imageSize?.width, imageSize?.height);
-      const halfWidth = displaySize.width / 2;
-      const halfHeight = displaySize.height / 2;
-      const spawnX =
-        halfWidth +
-        Math.random() * Math.max(displaySize.width, worldWidth - displaySize.width);
-      const spawnY = halfHeight + WALL_THICKNESS / 2 + 8;
-
-      const body = Bodies.rectangle(spawnX, spawnY, displaySize.width, displaySize.height, {
-        label: "photo",
-        restitution: 0.28,
-        friction: 0.65,
-        frictionStatic: 0.85,
-        frictionAir: 0.035,
-        density: 0.0012,
-        chamfer: { radius: 2 },
-      });
-
-      Body.setAngularVelocity(body, (Math.random() - 0.5) * 0.12);
-      Body.setVelocity(body, {
-        x: (Math.random() - 0.5) * 0.6,
-        y: 0.45,
-      });
-
+      const body = createFallingPhotoBody(displaySize, worldWidth);
       World.add(engineRef.current.world, body);
 
       const item: PhotoItem = {
