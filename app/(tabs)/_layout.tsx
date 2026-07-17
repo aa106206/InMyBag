@@ -53,8 +53,8 @@ export default function TabLayout() {
       <Tabs.Screen
         name="ranking"
         options={{
-          title: '랭킹',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="chart.bar.fill" color={color} />,
+          title: '이야기',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="book.closed.fill" color={color} />,
         }}
       />
       <Tabs.Screen

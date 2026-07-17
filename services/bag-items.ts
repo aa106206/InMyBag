@@ -16,6 +16,8 @@ export type SavedBagItem = ImageSize & {
   imageUrl: string;
   storagePath: string | null;
   createdAt: string;
+  objectLabel: string | null;
+  locationName: string | null;
 };
 
 type BagStackRow = {
@@ -29,6 +31,8 @@ type BagItemRow = {
   width: number | null;
   height: number | null;
   created_at: string;
+  object_label: string | null;
+  location_name: string | null;
 };
 
 type UploadImageData = {
@@ -138,21 +142,40 @@ async function ensureProfile(user: User) {
 async function getCurrentBagStackId(user: User) {
   await ensureProfile(user);
 
-  const { data: existingStack, error: selectError } = await supabase
+  const { data: stacks, error: selectError } = await supabase
     .from('bag_stacks')
-    .select('id')
+    .select('id,title')
     .eq('user_id', user.id)
-    .eq('title', 'Current Bag')
     .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle<BagStackRow>();
+    .returns<(BagStackRow & { title: string })[]>();
 
   if (selectError) {
     throw selectError;
   }
 
-  if (existingStack?.id) {
-    return existingStack.id;
+  if (stacks && stacks.length > 0) {
+    const stackIds = stacks.map((stack) => stack.id);
+    const { data: itemOwners, error: itemOwnersError } = await supabase
+      .from('bag_items')
+      .select('bag_stack_id')
+      .in('bag_stack_id', stackIds);
+
+    if (itemOwnersError) {
+      throw itemOwnersError;
+    }
+
+    const stackIdsWithItems = new Set(
+      (itemOwners ?? []).map((item) => item.bag_stack_id as string),
+    );
+    const latestStackWithItems = stacks.find((stack) => stackIdsWithItems.has(stack.id));
+
+    // 이전 버전이 만든 빈 `Current Bag`이 있어도,
+    // 실제 DB 객체가 있는 가장 최근 가방을 선택한다.
+    if (latestStackWithItems) {
+      return latestStackWithItems.id;
+    }
+
+    return stacks.find((stack) => stack.title === 'Current Bag')?.id ?? stacks[0].id;
   }
 
   const { data: createdStack, error: insertError } = await supabase
@@ -190,23 +213,53 @@ async function getDisplayUrl(storagePath: string | null, fallbackUrl: string) {
 async function loadItemsForStack(bagStackId: string): Promise<SavedBagItem[]> {
   const { data, error } = await supabase
     .from('bag_items')
-    .select('id,image_url,storage_path,width,height,created_at')
+    .select('id,image_url,storage_path,width,height,created_at,object_label,location_name')
     .eq('bag_stack_id', bagStackId)
     .order('created_at', { ascending: true })
     .returns<BagItemRow[]>();
 
+  let rows = data;
+
   if (error) {
-    throw error;
+    // 이야기 기능의 메타데이터 컬럼을 아직 적용하지 않은 DB에서도
+    // 기존 객체 이미지는 정상적으로 불러올 수 있게 기존 컬럼만 다시 조회한다.
+    const isMissingMetadataColumn =
+      error.code === '42703'
+      || error.code === 'PGRST204'
+      || error.message.includes('object_label')
+      || error.message.includes('location_name');
+
+    if (!isMissingMetadataColumn) {
+      throw error;
+    }
+
+    const { data: legacyData, error: legacyError } = await supabase
+      .from('bag_items')
+      .select('id,image_url,storage_path,width,height,created_at')
+      .eq('bag_stack_id', bagStackId)
+      .order('created_at', { ascending: true });
+
+    if (legacyError) {
+      throw legacyError;
+    }
+
+    rows = (legacyData ?? []).map((item) => ({
+      ...item,
+      object_label: null,
+      location_name: null,
+    })) as BagItemRow[];
   }
 
   return Promise.all(
-    (data ?? []).map(async (item) => ({
+    (rows ?? []).map(async (item) => ({
       id: item.id,
       imageUrl: await getDisplayUrl(item.storage_path, item.image_url),
       storagePath: item.storage_path,
       width: item.width ?? 92,
       height: item.height ?? 92,
       createdAt: item.created_at,
+      objectLabel: item.object_label,
+      locationName: item.location_name,
     })),
   );
 }
@@ -260,6 +313,7 @@ export async function saveBagItem(
   user: User,
   uri: string,
   imageSize: ImageSize,
+  metadata?: { objectLabel?: string | null; locationName?: string | null },
 ): Promise<SavedBagItem> {
   const bagStackId = await getCurrentBagStackId(user);
   const imageData = await getUploadImageData(uri);
@@ -284,8 +338,10 @@ export async function saveBagItem(
       storage_path: storagePath,
       width: Math.round(imageSize.width),
       height: Math.round(imageSize.height),
+      object_label: metadata?.objectLabel ?? null,
+      location_name: metadata?.locationName ?? null,
     })
-    .select('id,image_url,storage_path,width,height,created_at')
+    .select('id,image_url,storage_path,width,height,created_at,object_label,location_name')
     .single<BagItemRow>();
 
   if (insertError) {
@@ -300,6 +356,8 @@ export async function saveBagItem(
     width: item.width ?? imageSize.width,
     height: item.height ?? imageSize.height,
     createdAt: item.created_at,
+    objectLabel: item.object_label,
+    locationName: item.location_name,
   };
 }
 

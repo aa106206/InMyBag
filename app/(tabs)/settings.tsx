@@ -390,9 +390,9 @@ export default function SettingsScreen() {
                 </Text>
               </View>
               <View style={styles.guideSection}>
-                <Text style={styles.guideSectionTitle}>랭킹</Text>
+                <Text style={styles.guideSectionTitle}>오늘의 이야기</Text>
                 <Text style={styles.guideText}>
-                  매일 주어지는 미션을 이어가면 점수가 쌓이는 방식으로 준비 중이에요. 하루를 놓치면 streak가 초기화되는 방향으로 만들 예정이에요.
+                  오늘 수집한 모든 물건을 주인공으로 삼아 그림일기를 만들어요. 분위기와 길이, 상상력을 고른 뒤 만든 이야기를 저장하거나 친구에게 공유할 수 있어요.
                 </Text>
               </View>
             </ScrollView>
