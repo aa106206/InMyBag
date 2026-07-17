@@ -187,9 +187,7 @@ async function getDisplayUrl(storagePath: string | null, fallbackUrl: string) {
   return data.signedUrl;
 }
 
-export async function loadCurrentBagItems(user: User): Promise<SavedBagItem[]> {
-  const bagStackId = await getCurrentBagStackId(user);
-
+async function loadItemsForStack(bagStackId: string): Promise<SavedBagItem[]> {
   const { data, error } = await supabase
     .from('bag_items')
     .select('id,image_url,storage_path,width,height,created_at')
@@ -211,6 +209,51 @@ export async function loadCurrentBagItems(user: User): Promise<SavedBagItem[]> {
       createdAt: item.created_at,
     })),
   );
+}
+
+export async function loadCurrentBagItems(user: User): Promise<SavedBagItem[]> {
+  const bagStackId = await getCurrentBagStackId(user);
+  return loadItemsForStack(bagStackId);
+}
+
+export async function loadFriendBagItems(friendUserId: string): Promise<SavedBagItem[]> {
+  const { data: currentStack, error: currentStackError } = await supabase
+    .from('bag_stacks')
+    .select('id')
+    .eq('user_id', friendUserId)
+    .eq('title', 'Current Bag')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle<BagStackRow>();
+
+  if (currentStackError) {
+    throw currentStackError;
+  }
+
+  let bagStackId = currentStack?.id ?? null;
+
+  // 예전 방식으로 만들어진 스택만 있는 계정을 위해 최신 스택으로 폴백한다.
+  if (!bagStackId) {
+    const { data: latestStack, error: latestStackError } = await supabase
+      .from('bag_stacks')
+      .select('id')
+      .eq('user_id', friendUserId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle<BagStackRow>();
+
+    if (latestStackError) {
+      throw latestStackError;
+    }
+
+    bagStackId = latestStack?.id ?? null;
+  }
+
+  if (!bagStackId) {
+    return [];
+  }
+
+  return loadItemsForStack(bagStackId);
 }
 
 export async function saveBagItem(
