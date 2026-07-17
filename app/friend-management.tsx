@@ -1,83 +1,93 @@
 import { Image } from 'expo-image';
 import { Stack } from 'expo-router';
-import { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Brand } from '@/constants/theme';
+import { useAuth } from '@/hooks/use-auth';
+import { fetchFriends, FriendProfile } from '@/services/friends';
 
-type Friend = {
-  id: string;
-  user: string;
-  name: string;
-  avatar: string;
-};
+function FriendAvatar({ friend }: { friend: FriendProfile }) {
+  if (friend.avatarUrl) {
+    return <Image source={{ uri: friend.avatarUrl }} style={styles.friendAvatar} contentFit="cover" />;
+  }
 
-const friends: Friend[] = [
-  {
-    id: 'james',
-    user: 'james',
-    name: 'James',
-    avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=240',
-  },
-  {
-    id: 'hyunbin',
-    user: 'hyunbin',
-    name: 'Hyunbin',
-    avatar: 'https://images.unsplash.com/photo-1527980965255-d3b416303d12?w=240',
-  },
-  {
-    id: 'dongjun',
-    user: 'dongjun',
-    name: 'Dongjun',
-    avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=240',
-  },
-  {
-    id: 'yuna',
-    user: 'yuna',
-    name: 'Yuna',
-    avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=240',
-  },
-  {
-    id: 'minji',
-    user: 'minji',
-    name: 'Minji',
-    avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=240',
-  },
-  {
-    id: 'seojun',
-    user: 'seojun',
-    name: 'Seojun',
-    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=240',
-  },
-  {
-    id: 'hannah',
-    user: 'hannah',
-    name: 'Hannah',
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=240',
-  },
-  {
-    id: 'leo',
-    user: 'leo',
-    name: 'Leo',
-    avatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=240',
-  },
-];
+  return (
+    <View style={[styles.friendAvatar, styles.friendAvatarFallback]}>
+      <Text style={styles.friendAvatarInitial}>
+        {friend.username.slice(0, 1).toUpperCase()}
+      </Text>
+    </View>
+  );
+}
 
 export default function FriendManagementScreen() {
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
+  const [friends, setFriends] = useState<FriendProfile[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [searchText, setSearchText] = useState('');
+
+  const loadFriends = useCallback(async () => {
+    if (!userId) {
+      setFriends([]);
+      return;
+    }
+
+    try {
+      setLoadError(false);
+      setFriends(await fetchFriends(userId));
+    } catch (error) {
+      console.warn('Failed to load friends', error);
+      setLoadError(true);
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      setIsLoading(true);
+      await loadFriends();
+      if (!cancelled) {
+        setIsLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loadFriends]);
+
+  const refreshFriends = useCallback(async () => {
+    setIsRefreshing(true);
+    await loadFriends();
+    setIsRefreshing(false);
+  }, [loadFriends]);
+
   const normalizedSearch = searchText.trim().toLowerCase();
   const filteredFriends = useMemo(
     () =>
       normalizedSearch
         ? friends.filter(
             (friend) =>
-              friend.user.toLowerCase().includes(normalizedSearch) ||
-              friend.name.toLowerCase().includes(normalizedSearch),
+              friend.username.toLowerCase().includes(normalizedSearch) ||
+              (friend.email ?? '').toLowerCase().includes(normalizedSearch),
           )
         : friends,
-    [normalizedSearch],
+    [friends, normalizedSearch],
   );
 
   return (
@@ -95,24 +105,41 @@ export default function FriendManagementScreen() {
             style={styles.searchInput}
           />
         </View>
-        <ScrollView
-          style={styles.list}
-          contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 24 }]}
-          showsVerticalScrollIndicator={false}
-        >
-          {filteredFriends.map((friend) => (
-            <View key={friend.id} style={styles.friendRow}>
-              <Image source={{ uri: friend.avatar }} style={styles.friendAvatar} contentFit="cover" />
-              <View style={styles.friendInfo}>
-                <Text style={styles.friendUser}>@{friend.user}</Text>
-                <Text style={styles.friendName}>{friend.name}</Text>
+        {isLoading ? (
+          <View style={styles.loadingWrap}>
+            <ActivityIndicator color={Brand.primary} size="large" />
+          </View>
+        ) : (
+          <ScrollView
+            style={styles.list}
+            contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 24 }]}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl refreshing={isRefreshing} onRefresh={refreshFriends} />
+            }
+          >
+            {filteredFriends.map((friend) => (
+              <View key={friend.id} style={styles.friendRow}>
+                <FriendAvatar friend={friend} />
+                <View style={styles.friendInfo}>
+                  <Text style={styles.friendUser}>@{friend.username.split('@')[0]}</Text>
+                  {friend.email ? <Text style={styles.friendName}>{friend.email}</Text> : null}
+                </View>
               </View>
-            </View>
-          ))}
-          {filteredFriends.length === 0 ? (
-            <Text style={styles.emptyText}>검색 결과가 없습니다.</Text>
-          ) : null}
-        </ScrollView>
+            ))}
+            {loadError ? (
+              <Text style={styles.emptyText}>
+                친구 목록을 불러오지 못했어요. 아래로 당겨서 다시 시도해 주세요.
+              </Text>
+            ) : filteredFriends.length === 0 ? (
+              <Text style={styles.emptyText}>
+                {normalizedSearch
+                  ? '검색 결과가 없습니다.'
+                  : '아직 친구가 없어요.\n설정에서 친구 초대 링크를 공유해 보세요!'}
+              </Text>
+            ) : null}
+          </ScrollView>
+        )}
       </View>
     </>
   );
@@ -140,6 +167,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Brand.border,
   },
+  loadingWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   list: {
     flex: 1,
   },
@@ -165,6 +197,16 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     backgroundColor: Brand.secondary,
   },
+  friendAvatarFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Brand.primary,
+  },
+  friendAvatarInitial: {
+    color: Brand.text,
+    fontSize: 20,
+    fontWeight: '900',
+  },
   friendInfo: {
     flex: 1,
     gap: 2,
@@ -185,5 +227,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     textAlign: 'center',
+    lineHeight: 22,
   },
 });
