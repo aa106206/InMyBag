@@ -148,6 +148,21 @@ function clampPhotoPosition(
 }
 
 function clampBodyInsideWorld(body: Matter.Body, worldSize: WorldSize, photoSize: number) {
+  // 좌표가 NaN으로 오염되면 화면 왼쪽 위에 붙은 것처럼 보이므로 안전한 위치로 되살린다.
+  if (
+    !Number.isFinite(body.position.x) ||
+    !Number.isFinite(body.position.y) ||
+    !Number.isFinite(body.angle)
+  ) {
+    if (worldSize.width > 0 && worldSize.height > 0) {
+      Body.setPosition(body, { x: worldSize.width / 2, y: worldSize.height / 3 });
+      Body.setAngle(body, 0);
+      Body.setVelocity(body, { x: 0, y: 0 });
+      Body.setAngularVelocity(body, 0);
+    }
+    return;
+  }
+
   const nextPosition = clampPhotoPosition(body.position, worldSize, photoSize);
   const didClamp =
     nextPosition.x !== body.position.x || nextPosition.y !== body.position.y;
@@ -155,6 +170,35 @@ function clampBodyInsideWorld(body: Matter.Body, worldSize: WorldSize, photoSize
   if (didClamp) {
     Body.setPosition(body, nextPosition);
     Body.setVelocity(body, { x: 0, y: 0 });
+  }
+}
+
+const STUCK_DRAG_TIMEOUT_MS = 2000;
+// 릴리즈 속도 상한. 너무 빠르면 한 프레임에 벽을 뚫고 월드 밖으로 나갈 수 있다(터널링).
+const MAX_THROW_SPEED = 16;
+
+function limitThrowSpeed(value: number) {
+  return Math.max(-MAX_THROW_SPEED, Math.min(MAX_THROW_SPEED, value));
+}
+
+type DraggedBody = Matter.Body & { dragHeartbeatAt?: number };
+
+function markDragHeartbeat(body: Matter.Body) {
+  (body as DraggedBody).dragHeartbeatAt = Date.now();
+}
+
+// 드래그가 비정상적으로 끊겨 static(고정)으로 남은 사진을 감지해 즉시 다시 움직이게 한다.
+// 정상 드래그 중에는 grant/move에서 하트비트가 계속 갱신되므로 여기에 걸리지 않는다.
+function releaseBodyIfStuck(body: Matter.Body) {
+  if (body.label !== 'photo' || !body.isStatic) {
+    return;
+  }
+
+  const heartbeatAt = (body as DraggedBody).dragHeartbeatAt ?? 0;
+  if (Date.now() - heartbeatAt > STUCK_DRAG_TIMEOUT_MS) {
+    Body.setStatic(body, false);
+    Body.setVelocity(body, { x: 0, y: 0 });
+    Body.setAngularVelocity(body, 0);
   }
 }
 
@@ -249,11 +293,13 @@ function PhysicsPhoto({
         scheduleDragFallback();
         dragStartRef.current = { x: body.position.x, y: body.position.y };
         Body.setStatic(body, true);
+        markDragHeartbeat(body);
         Body.setVelocity(body, { x: 0, y: 0 });
         Body.setAngularVelocity(body, 0);
       },
       onPanResponderMove: (_, gestureState) => {
         const body = bodyRef.current;
+        markDragHeartbeat(body);
         scheduleDragFallback();
         if (Math.abs(gestureState.dx) > 8 || Math.abs(gestureState.dy) > 8) {
           clearLongPressTimer();
@@ -272,8 +318,8 @@ function PhysicsPhoto({
       },
       onPanResponderRelease: (_, gestureState) => {
         endPhotoDrag({
-          x: gestureState.vx * 4,
-          y: gestureState.vy * 4,
+          x: limitThrowSpeed(gestureState.vx * 4),
+          y: limitThrowSpeed(gestureState.vy * 4),
         });
       },
       onPanResponderTerminate: () => {
@@ -505,6 +551,7 @@ function FriendBagPage({
         if (body.label === 'photo') {
           const photoSize = (body as Matter.Body & { photoSize?: number }).photoSize ?? 0;
           clampBodyInsideWorld(body, worldSizeRef.current, photoSize);
+          releaseBodyIfStuck(body);
         }
       });
       setFrame((value) => (value + 1) % 1000000);
