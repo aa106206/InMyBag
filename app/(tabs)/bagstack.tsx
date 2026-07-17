@@ -1333,7 +1333,8 @@ export default function BagStackScreen() {
 
     setIsSavingBagItem(true);
     try {
-      const savedItem = await saveBagItem(user, segmentedPreview.uri, imageSize);
+      const objectLabel = detectionBoxes.find((box) => box.id === selectedDetectionId)?.label;
+      const savedItem = await saveBagItem(user, segmentedPreview.uri, imageSize, { objectLabel });
 
       setPhotos((current) =>
         current.map((photo) =>
@@ -1351,7 +1352,7 @@ export default function BagStackScreen() {
     } finally {
       setIsSavingBagItem(false);
     }
-  }, [segmentedPreview, spawnPhoto, user]);
+  }, [detectionBoxes, segmentedPreview, selectedDetectionId, spawnPhoto, user]);
 
   return (
     <View style={styles.screen}>
