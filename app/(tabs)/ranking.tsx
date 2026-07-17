@@ -24,21 +24,26 @@ import {
   loadStories,
   saveStory,
   type GeneratedStory,
-  type StoryLength,
   type StoryMood,
 } from '@/services/stories';
 
 const moods: { id: StoryMood; emoji: string; label: string; description: string }[] = [
-  { id: 'warm', emoji: '☀️', label: '따뜻한 하루', description: '포근한 그림일기' },
-  { id: 'adventure', emoji: '🎈', label: '작은 모험', description: '웃음과 반전이 있는 여행' },
-  { id: 'mystery', emoji: '🌙', label: '신비한 사건', description: '상상력을 자극하는 비밀' },
+  { id: 'warm', emoji: '☕', label: '따뜻한 하루', description: '오늘의 순간을 포근한 그림일기로 남겨요' },
+  { id: 'adventure', emoji: '🎈', label: '즐거운 하루', description: '물건들과 함께 떠나는 유쾌한 모험이에요' },
+  { id: 'comedy', emoji: '🤭', label: '엉뚱한 코미디', description: '예상 밖의 사건과 웃긴 반전이 생겨요' },
 ];
 
-const lengthOptions: { id: StoryLength; label: string; detail: string }[] = [
-  { id: 'short', label: '짧게', detail: '30초' },
-  { id: 'medium', label: '적당히', detail: '1분' },
-  { id: 'long', label: '길게', detail: '2분' },
+const momentSuggestions = [
+  '카페에서 보낸 시간',
+  '학교에서 있었던 일',
+  '산책하다 발견한 순간',
 ];
+
+function getCreativityCopy(value: number) {
+  if (value <= 3) return '오늘 있었던 일에 가까운 그림일기';
+  if (value <= 6) return '현실에 기반해 기발한 상상을 더한 이야기';
+  return '물건들이 말하고 모험하는 자유로운 판타지';
+}
 
 function isToday(isoDate: string) {
   const date = new Date(isoDate);
@@ -51,6 +56,10 @@ function isToday(isoDate: string) {
 function formatDate(isoDate: string) {
   return new Intl.DateTimeFormat('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' })
     .format(new Date(isoDate));
+}
+
+function getObjectName(item: SavedBagItem) {
+  return item.objectLabel?.trim() || '이름 미등록';
 }
 
 function ObjectRail({ items }: { items: SavedBagItem[] }) {
@@ -68,13 +77,13 @@ function ObjectRail({ items }: { items: SavedBagItem[] }) {
 
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.objectRail}>
-      {items.map((item, index) => (
+      {items.map((item) => (
         <View key={item.id} style={styles.objectChip}>
           <View style={styles.objectImageWrap}>
             <Image source={{ uri: item.imageUrl }} style={styles.objectImage} resizeMode="contain" />
           </View>
           <Text style={styles.objectName} numberOfLines={1}>
-            {item.objectLabel || `물건 ${index + 1}`}
+            {getObjectName(item)}
           </Text>
         </View>
       ))}
@@ -121,8 +130,8 @@ function StoryCard({ story, compact = false }: { story: GeneratedStory; compact?
         <View style={styles.storyDivider} />
         <Text style={styles.storyBody} numberOfLines={compact ? 5 : undefined}>{story.body}</Text>
         <View style={styles.storyTags}>
-          {story.itemLabels.slice(0, 4).map((label) => (
-            <View key={label} style={styles.storyTag}><Text style={styles.storyTagText}>#{label}</Text></View>
+          {story.itemLabels.slice(0, 4).map((label, index) => (
+            <View key={`${label}-${index}`} style={styles.storyTag}><Text style={styles.storyTagText}>#{label}</Text></View>
           ))}
         </View>
       </View>
@@ -138,13 +147,20 @@ export default function StoryScreen() {
   const [story, setStory] = useState<GeneratedStory | null>(null);
   const [concept, setConcept] = useState('');
   const [mood, setMood] = useState<StoryMood>('warm');
-  const [length, setLength] = useState<StoryLength>('medium');
   const [creativity, setCreativity] = useState(7);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [objectsExpanded, setObjectsExpanded] = useState(true);
 
   const todayItems = useMemo(() => items.filter((item) => isToday(item.createdAt)), [items]);
+  const todayObjectSummary = useMemo(() => {
+    if (todayItems.length === 0) return '오늘 수집한 물건이 아직 없어요';
+    const names = todayItems.map(getObjectName);
+    const visibleNames = names.slice(0, 3).join(', ');
+    const restCount = names.length - 3;
+    return restCount > 0 ? `${visibleNames} 외 ${restCount}개` : visibleNames;
+  }, [todayItems]);
 
   const refresh = useCallback(async () => {
     if (!user) return;
@@ -172,7 +188,7 @@ export default function StoryScreen() {
     }
     setGenerating(true);
     await new Promise((resolve) => setTimeout(resolve, 900));
-    setStory(createStoryDraft({ items: todayItems, concept, length, mood, creativity }));
+    setStory(createStoryDraft({ items: todayItems, concept, length: 'medium', mood, creativity }));
     setGenerating(false);
   };
 
@@ -220,63 +236,173 @@ export default function StoryScreen() {
             </Pressable>
           </View>
 
-          <View style={styles.sectionHeader}>
-            <Text style={styles.stepLabel}>01</Text>
-            <View><Text style={styles.sectionTitle}>오늘의 주인공</Text><Text style={styles.sectionHint}>오늘 수집한 물건을 모두 활용해요</Text></View>
+          <View style={styles.objectsSection}>
+            <Pressable
+              style={({ pressed }) => [styles.objectsToggle, pressed && styles.objectsTogglePressed]}
+              onPress={() => setObjectsExpanded((value) => !value)}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: objectsExpanded }}
+              accessibilityLabel={`오늘의 주인공 ${todayItems.length}개 ${objectsExpanded ? '접기' : '펼치기'}`}
+            >
+              <Text style={styles.stepLabel}>01</Text>
+              <View style={styles.objectsTitleCopy}>
+                <View style={styles.objectsTitleRow}>
+                  <Text style={styles.sectionTitle}>오늘의 주인공</Text>
+                  <View style={styles.objectCountBadge}>
+                    <Text style={styles.objectCountText}>{todayItems.length}</Text>
+                  </View>
+                </View>
+                <Text style={styles.sectionHint} numberOfLines={objectsExpanded ? 1 : 2}>
+                  {objectsExpanded ? '오늘 수집한 물건을 모두 활용해요' : todayObjectSummary}
+                </Text>
+              </View>
+              <View style={[styles.chevronButton, objectsExpanded && styles.chevronButtonExpanded]}>
+                <Text style={styles.chevronText}>{objectsExpanded ? '⌃' : '⌄'}</Text>
+              </View>
+            </Pressable>
+            {objectsExpanded ? <ObjectRail items={todayItems} /> : null}
           </View>
-          <ObjectRail items={todayItems} />
 
           <View style={styles.formCard}>
             <View style={styles.sectionHeader}>
               <Text style={styles.stepLabel}>02</Text>
-              <View><Text style={styles.sectionTitle}>이야기에 상상력 더하기</Text><Text style={styles.sectionHint}>원하는 느낌을 골라 주세요</Text></View>
+              <View style={styles.sectionTitleCopy}>
+                <Text style={styles.sectionTitle}>나만의 이야기 설정</Text>
+                <Text style={styles.sectionHint}>오늘의 순간과 원하는 느낌을 알려 주세요</Text>
+              </View>
             </View>
 
-            <Text style={styles.fieldLabel}>오늘의 컨셉 <Text style={styles.optional}>· 선택</Text></Text>
-            <TextInput
-              value={concept}
-              onChangeText={setConcept}
-              placeholder="예: 평범한 물건들이 밤새 모험을 떠나요"
-              placeholderTextColor="#9A949B"
-              style={styles.conceptInput}
-              multiline
-              maxLength={120}
-            />
+            <View style={styles.questionBlock}>
+              <View style={styles.questionTitleRow}>
+                <View style={styles.questionNumber}><Text style={styles.questionNumberText}>1</Text></View>
+                <View style={styles.questionTitleCopy}>
+                  <Text style={styles.questionTitle}>오늘 어떤 일이 있었나요?</Text>
+                  <Text style={styles.questionDescription}>작은 일도 좋아요. 비워 두면 물건만으로 만들어요.</Text>
+                </View>
+                <Text style={styles.optionalBadge}>선택</Text>
+              </View>
+              <View style={styles.momentInputWrap}>
+                <TextInput
+                  value={concept}
+                  onChangeText={setConcept}
+                  placeholder="예: 카페에서 과제를 하다가 갑자기 비가 왔어요."
+                  placeholderTextColor="#A29BA1"
+                  style={styles.momentInput}
+                  multiline
+                  maxLength={160}
+                  textAlignVertical="top"
+                />
+                <Text style={styles.characterCount}>{concept.length}/160</Text>
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.suggestionRail}>
+                {momentSuggestions.map((suggestion) => (
+                  <Pressable
+                    key={suggestion}
+                    onPress={() => setConcept(suggestion)}
+                    style={({ pressed }) => [styles.suggestionChip, pressed && styles.suggestionChipPressed]}
+                  >
+                    <Text style={styles.suggestionChipText}>+ {suggestion}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
 
-            <Text style={styles.fieldLabel}>이야기 분위기</Text>
-            <View style={styles.moodGrid}>
+            <View style={styles.questionDivider} />
+
+            <View style={styles.questionBlock}>
+              <View style={styles.questionTitleRow}>
+                <View style={styles.questionNumber}><Text style={styles.questionNumberText}>2</Text></View>
+                <View style={styles.questionTitleCopy}>
+                  <Text style={styles.questionTitle}>어떤 이야기로 만들까요?</Text>
+                  <Text style={styles.questionDescription}>오늘을 기억하고 싶은 방식을 하나 골라요.</Text>
+                </View>
+              </View>
+              <View style={styles.moodList}>
               {moods.map((option) => {
                 const selected = mood === option.id;
                 return (
-                  <Pressable key={option.id} onPress={() => setMood(option.id)} style={[styles.moodCard, selected && styles.moodCardSelected]}>
-                    <Text style={styles.moodEmoji}>{option.emoji}</Text>
-                    <Text style={[styles.moodLabel, selected && styles.moodLabelSelected]}>{option.label}</Text>
-                    <Text style={styles.moodDescription}>{option.description}</Text>
+                  <Pressable
+                    key={option.id}
+                    onPress={() => setMood(option.id)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: selected }}
+                    style={({ pressed }) => [
+                      styles.moodCard,
+                      selected && styles.moodCardSelected,
+                      pressed && styles.moodCardPressed,
+                    ]}
+                  >
+                    <View style={[styles.moodEmojiWrap, selected && styles.moodEmojiWrapSelected]}>
+                      <Text style={styles.moodEmoji}>{option.emoji}</Text>
+                    </View>
+                    <View style={styles.moodCopy}>
+                      <Text style={[styles.moodLabel, selected && styles.moodLabelSelected]}>{option.label}</Text>
+                      <Text style={styles.moodDescription}>{option.description}</Text>
+                    </View>
+                    <View style={[styles.radioOuter, selected && styles.radioOuterSelected]}>
+                      {selected ? <View style={styles.radioInner} /> : null}
+                    </View>
                   </Pressable>
                 );
               })}
+              </View>
             </View>
 
-            <Text style={styles.fieldLabel}>이야기 길이</Text>
-            <View style={styles.segmentedControl}>
-              {lengthOptions.map((option) => (
-                <Pressable key={option.id} onPress={() => setLength(option.id)} style={[styles.lengthOption, length === option.id && styles.lengthOptionSelected]}>
-                  <Text style={[styles.lengthLabel, length === option.id && styles.lengthLabelSelected]}>{option.label}</Text>
-                  <Text style={[styles.lengthDetail, length === option.id && styles.lengthDetailSelected]}>{option.detail}</Text>
-                </Pressable>
-              ))}
-            </View>
+            <View style={styles.questionDivider} />
 
-            <View style={styles.creativityHeader}>
-              <Text style={styles.fieldLabel}>상상력</Text>
-              <Text style={styles.creativityValue}>{creativity} / 9</Text>
+            <View style={styles.questionBlock}>
+              <View style={styles.questionTitleRow}>
+                <View style={styles.questionNumber}><Text style={styles.questionNumberText}>3</Text></View>
+                <View style={styles.questionTitleCopy}>
+                  <Text style={styles.questionTitle}>상상을 얼마나 더할까요?</Text>
+                  <Text style={styles.questionDescription}>{getCreativityCopy(creativity)}</Text>
+                </View>
+                <View style={styles.creativityBadge}>
+                  <Text style={styles.creativityBadgeValue}>{creativity}</Text>
+                  <Text style={styles.creativityBadgeTotal}>/9</Text>
+                </View>
+              </View>
+
+              <View style={styles.creativityControl}>
+                <View style={styles.creativityTrack}>
+                  <View
+                    style={[
+                      styles.creativityTrackFill,
+                      { width: `${((creativity - 1) / 8) * 100}%` as `${number}%` },
+                    ]}
+                  />
+                </View>
+                <View style={styles.creativityStops}>
+                  {Array.from({ length: 9 }, (_, index) => index + 1).map((value) => {
+                    const selected = value === creativity;
+                    const active = value <= creativity;
+                    return (
+                      <Pressable
+                        key={value}
+                        onPress={() => setCreativity(value)}
+                        accessibilityRole="radio"
+                        accessibilityState={{ checked: selected }}
+                        accessibilityLabel={`상상력 ${value}단계`}
+                        hitSlop={4}
+                        style={styles.creativityStopButton}
+                      >
+                        <View style={[
+                          styles.creativityStop,
+                          active && styles.creativityStopActive,
+                          selected && styles.creativityStopSelected,
+                        ]} />
+                        <Text style={[styles.creativityStopNumber, selected && styles.creativityStopNumberSelected]}>{value}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+              <View style={styles.creativityLegend}>
+                <View><Text style={styles.legendTitle}>오늘 그대로</Text><Text style={styles.legendText}>현실에 가깝게</Text></View>
+                <Text style={styles.legendArrow}>→</Text>
+                <View style={styles.legendRight}><Text style={styles.legendTitle}>상상 가득</Text><Text style={styles.legendText}>자유로운 판타지</Text></View>
+              </View>
             </View>
-            <View style={styles.creativityRow}>
-              {Array.from({ length: 9 }, (_, index) => index + 1).map((value) => (
-                <Pressable key={value} onPress={() => setCreativity(value)} style={[styles.creativityDot, value <= creativity && styles.creativityDotActive]} />
-              ))}
-            </View>
-            <View style={styles.creativityLegend}><Text style={styles.legendText}>일상적</Text><Text style={styles.legendText}>자유로운 상상</Text></View>
 
             <Pressable onPress={generate} disabled={generating || todayItems.length === 0} style={[styles.generateButton, (generating || todayItems.length === 0) && styles.generateButtonDisabled]}>
               {generating ? <ActivityIndicator color="#FFFFFF" /> : <><Text style={styles.generateSpark}>✦</Text><Text style={styles.generateText}>오늘의 이야기 만들기</Text></>}
@@ -335,6 +461,17 @@ const styles = StyleSheet.create({
   historyBadge: { position: 'absolute', right: -5, top: -5, minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, backgroundColor: '#806EA8', alignItems: 'center', justifyContent: 'center' },
   historyBadgeText: { color: '#FFFFFF', fontSize: 10, fontWeight: '900' },
   sectionHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 16 },
+  sectionTitleCopy: { flex: 1 },
+  objectsSection: { marginBottom: 8 },
+  objectsToggle: { flexDirection: 'row', alignItems: 'center', minHeight: 62, borderRadius: 20, paddingVertical: 8, paddingHorizontal: 2 },
+  objectsTogglePressed: { opacity: 0.62 },
+  objectsTitleCopy: { flex: 1, marginLeft: 12 },
+  objectsTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  objectCountBadge: { minWidth: 23, height: 23, borderRadius: 12, paddingHorizontal: 7, alignItems: 'center', justifyContent: 'center', backgroundColor: '#EEE7FA' },
+  objectCountText: { color: '#725E98', fontSize: 11, fontWeight: '900' },
+  chevronButton: { width: 34, height: 34, marginLeft: 8, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.72)', borderWidth: 1, borderColor: Brand.border },
+  chevronButtonExpanded: { backgroundColor: '#F1ECFB', borderColor: '#D8CDEE' },
+  chevronText: { color: '#725E98', fontSize: 20, lineHeight: 23, fontWeight: '900' },
   stepLabel: { width: 31, height: 31, paddingTop: 7, borderRadius: 10, overflow: 'hidden', textAlign: 'center', backgroundColor: Brand.lavender, color: Brand.text, fontSize: 12, fontWeight: '900' },
   sectionTitle: { fontSize: 19, fontWeight: '900', color: Brand.text, letterSpacing: -0.4 },
   sectionHint: { fontSize: 12, color: Brand.muted, marginTop: 4 },
@@ -348,31 +485,55 @@ const styles = StyleSheet.create({
   objectImageWrap: { width: 78, height: 78, borderRadius: 24, backgroundColor: Brand.surface, borderWidth: 1, borderColor: Brand.border, padding: 10, shadowColor: '#5D4C6D', shadowOpacity: 0.08, shadowRadius: 9, shadowOffset: { width: 0, height: 4 } },
   objectImage: { width: '100%', height: '100%' },
   objectName: { maxWidth: 82, marginTop: 8, color: Brand.text, fontSize: 12, fontWeight: '700' },
-  formCard: { backgroundColor: Brand.surface, borderRadius: 28, padding: 18, borderWidth: 1, borderColor: Brand.border, shadowColor: '#67576B', shadowOpacity: 0.08, shadowRadius: 18, shadowOffset: { width: 0, height: 7 } },
-  fieldLabel: { fontSize: 14, fontWeight: '900', color: Brand.text, marginTop: 17, marginBottom: 10 },
-  optional: { fontSize: 11, color: Brand.muted, fontWeight: '600' },
-  conceptInput: { minHeight: 78, borderRadius: 17, backgroundColor: '#FAF7F4', borderWidth: 1, borderColor: '#E9DFE2', padding: 14, fontSize: 14, lineHeight: 20, color: Brand.text, textAlignVertical: 'top' },
-  moodGrid: { flexDirection: 'row', gap: 8 },
-  moodCard: { flex: 1, minHeight: 118, borderRadius: 18, borderWidth: 1, borderColor: '#E9DFE2', backgroundColor: '#FAF7F4', padding: 10, alignItems: 'center' },
-  moodCardSelected: { borderWidth: 2, borderColor: '#927DBD', backgroundColor: '#F1ECFB' },
-  moodEmoji: { fontSize: 26, marginBottom: 7 },
-  moodLabel: { fontSize: 12, fontWeight: '900', color: Brand.text, textAlign: 'center' },
+  formCard: { backgroundColor: Brand.surface, borderRadius: 28, paddingHorizontal: 18, paddingTop: 20, paddingBottom: 18, borderWidth: 1, borderColor: Brand.border, shadowColor: '#67576B', shadowOpacity: 0.08, shadowRadius: 18, shadowOffset: { width: 0, height: 7 } },
+  questionBlock: { paddingTop: 8 },
+  questionTitleRow: { flexDirection: 'row', alignItems: 'flex-start' },
+  questionNumber: { width: 27, height: 27, borderRadius: 10, backgroundColor: '#EEE7FA', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
+  questionNumberText: { color: '#725E98', fontSize: 12, fontWeight: '900' },
+  questionTitleCopy: { flex: 1, paddingTop: 1 },
+  questionTitle: { color: Brand.text, fontSize: 16, lineHeight: 22, fontWeight: '900', letterSpacing: -0.25 },
+  questionDescription: { color: Brand.muted, fontSize: 11, lineHeight: 16, marginTop: 4 },
+  optionalBadge: { marginLeft: 8, marginTop: 2, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 9, overflow: 'hidden', backgroundColor: '#F2EFED', color: '#8C8488', fontSize: 9, fontWeight: '800' },
+  questionDivider: { height: 1, backgroundColor: '#EEE8E6', marginVertical: 22 },
+  momentInputWrap: { minHeight: 112, marginTop: 14, borderRadius: 18, backgroundColor: '#FAF8F6', borderWidth: 1, borderColor: '#E8DFDF', overflow: 'hidden' },
+  momentInput: { minHeight: 82, paddingHorizontal: 14, paddingTop: 13, paddingBottom: 6, color: Brand.text, fontSize: 13, lineHeight: 20 },
+  characterCount: { alignSelf: 'flex-end', paddingHorizontal: 12, paddingBottom: 9, color: '#AAA2A5', fontSize: 9, fontWeight: '600' },
+  suggestionRail: { gap: 7, paddingTop: 10, paddingRight: 12 },
+  suggestionChip: { paddingHorizontal: 11, paddingVertical: 8, borderRadius: 12, backgroundColor: '#F5F0FA', borderWidth: 1, borderColor: '#E5DAF1' },
+  suggestionChipPressed: { opacity: 0.6 },
+  suggestionChipText: { color: '#725E98', fontSize: 10, fontWeight: '700' },
+  moodList: { gap: 9, marginTop: 14 },
+  moodCard: { minHeight: 72, borderRadius: 17, borderWidth: 1, borderColor: '#E9E1DF', backgroundColor: '#FBF9F7', paddingHorizontal: 12, paddingVertical: 11, flexDirection: 'row', alignItems: 'center' },
+  moodCardSelected: { borderWidth: 2, borderColor: '#947CC6', backgroundColor: '#F3EEFC', paddingHorizontal: 11, paddingVertical: 10 },
+  moodCardPressed: { opacity: 0.66 },
+  moodEmojiWrap: { width: 43, height: 43, borderRadius: 15, backgroundColor: '#F2EEEA', alignItems: 'center', justifyContent: 'center', marginRight: 11 },
+  moodEmojiWrapSelected: { backgroundColor: '#E5DAF7' },
+  moodEmoji: { fontSize: 23 },
+  moodCopy: { flex: 1, paddingRight: 8 },
+  moodLabel: { fontSize: 13, lineHeight: 18, fontWeight: '900', color: Brand.text },
   moodLabelSelected: { color: '#675293' },
-  moodDescription: { fontSize: 9, lineHeight: 13, color: Brand.muted, textAlign: 'center', marginTop: 5 },
-  segmentedControl: { flexDirection: 'row', backgroundColor: '#F3EEEC', padding: 4, borderRadius: 17 },
-  lengthOption: { flex: 1, borderRadius: 13, alignItems: 'center', paddingVertical: 9 },
-  lengthOptionSelected: { backgroundColor: Brand.surface, shadowColor: '#55495B', shadowOpacity: 0.11, shadowRadius: 5, shadowOffset: { width: 0, height: 2 } },
-  lengthLabel: { fontSize: 12, fontWeight: '800', color: Brand.muted },
-  lengthLabelSelected: { color: Brand.text },
-  lengthDetail: { fontSize: 9, color: '#A9A0A4', marginTop: 2 },
-  lengthDetailSelected: { color: '#806EA8' },
-  creativityHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  creativityValue: { fontSize: 12, fontWeight: '800', color: '#806EA8', marginTop: 8 },
-  creativityRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 2 },
-  creativityDot: { width: 22, height: 8, borderRadius: 5, backgroundColor: '#E9E2E1' },
-  creativityDotActive: { backgroundColor: '#A28CCB' },
-  creativityLegend: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
-  legendText: { fontSize: 9, color: Brand.muted },
+  moodDescription: { fontSize: 10, lineHeight: 15, color: Brand.muted, marginTop: 3 },
+  radioOuter: { width: 21, height: 21, borderRadius: 11, borderWidth: 1.5, borderColor: '#CFC6CA', alignItems: 'center', justifyContent: 'center' },
+  radioOuterSelected: { borderColor: '#8B72BD' },
+  radioInner: { width: 11, height: 11, borderRadius: 6, backgroundColor: '#8B72BD' },
+  creativityBadge: { flexDirection: 'row', alignItems: 'baseline', marginLeft: 8, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 11, backgroundColor: '#EEE7FA' },
+  creativityBadgeValue: { color: '#725E98', fontSize: 15, fontWeight: '900' },
+  creativityBadgeTotal: { color: '#9B8DAF', fontSize: 9, fontWeight: '800' },
+  creativityControl: { position: 'relative', height: 62, marginTop: 19, paddingHorizontal: 1 },
+  creativityTrack: { position: 'absolute', left: 17, right: 17, top: 16, height: 4, borderRadius: 2, backgroundColor: '#E8E1E3', overflow: 'hidden' },
+  creativityTrackFill: { height: 4, borderRadius: 2, backgroundColor: '#9A82C8' },
+  creativityStops: { flexDirection: 'row', justifyContent: 'space-between' },
+  creativityStopButton: { width: 34, height: 58, alignItems: 'center' },
+  creativityStop: { width: 12, height: 12, marginTop: 12, borderRadius: 6, backgroundColor: '#DAD2D6', borderWidth: 2, borderColor: Brand.surface },
+  creativityStopActive: { backgroundColor: '#A992D2' },
+  creativityStopSelected: { width: 22, height: 22, marginTop: 7, borderRadius: 11, backgroundColor: '#8166B4', borderWidth: 5, borderColor: '#E9E0F7', shadowColor: '#6C549A', shadowOpacity: 0.18, shadowRadius: 5, shadowOffset: { width: 0, height: 2 } },
+  creativityStopNumber: { marginTop: 7, color: '#AAA1A5', fontSize: 9, fontWeight: '700' },
+  creativityStopNumberSelected: { marginTop: 2, color: '#725E98', fontWeight: '900' },
+  creativityLegend: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 2 },
+  legendTitle: { color: Brand.text, fontSize: 10, fontWeight: '800' },
+  legendText: { marginTop: 2, color: Brand.muted, fontSize: 9 },
+  legendArrow: { flex: 1, textAlign: 'center', color: '#B5A8BD', fontSize: 18 },
+  legendRight: { alignItems: 'flex-end' },
   generateButton: { height: 56, borderRadius: 19, backgroundColor: Brand.text, marginTop: 25, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 },
   generateButtonDisabled: { opacity: 0.36 },
   generateSpark: { color: Brand.primarySoft, fontSize: 21 },

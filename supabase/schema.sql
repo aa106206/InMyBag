@@ -133,9 +133,19 @@ create policy "Users can delete items from their own bag stacks"
     )
   );
 
-insert into storage.buckets (id, name, public)
-values ('bag-items', 'bag-items', false)
-on conflict (id) do update set public = excluded.public;
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'bag-items',
+  'bag-items',
+  false,
+  10485760,
+  array['image/png', 'image/jpeg', 'image/webp']
+)
+on conflict (id) do update
+set
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
 
 drop policy if exists "Users can read their own bag item images" on storage.objects;
 drop policy if exists "Users can upload their own bag item images" on storage.objects;
