@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import type { SavedBagItem } from '@/services/bag-items';
+import { getSam2ServerUrl } from '@/services/sam2';
 
 export type StoryLength = 'short' | 'medium' | 'long';
 export type StoryMood = 'warm' | 'adventure' | 'comedy' | 'mystery';
@@ -16,6 +17,17 @@ export type GeneratedStory = {
   itemIds: string[];
   itemLabels: string[];
   imageUrls: string[];
+  illustrationUrl?: string;
+  textModel?: string;
+  imageModel?: string;
+};
+
+type GeminiStoryResponse = {
+  title: string;
+  body: string;
+  image: string;
+  textModel: string;
+  imageModel: string;
 };
 
 const storageKey = (userId: string) => `snapbag:stories:${userId}`;
@@ -40,6 +52,78 @@ export async function saveStory(userId: string, story: GeneratedStory) {
 
 function getLabel(item: SavedBagItem) {
   return item.objectLabel?.trim() || '이름 미등록 물건';
+}
+
+export async function generateStoryWithGemini({
+  items,
+  dailyMoment,
+  mood,
+  creativity,
+}: {
+  items: SavedBagItem[];
+  dailyMoment: string;
+  mood: StoryMood;
+  creativity: number;
+}): Promise<GeneratedStory> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 210000);
+
+  try {
+    const response = await fetch(`${getSam2ServerUrl()}/story/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        dailyMoment: dailyMoment.trim(),
+        mood,
+        creativity,
+        objects: items.map((item) => ({
+          label: getLabel(item),
+          locationName: item.locationName,
+          imageUrl: item.imageUrl,
+        })),
+      }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      let detail = `HTTP ${response.status}`;
+      try {
+        const errorBody = await response.json() as { detail?: string };
+        detail = errorBody.detail || detail;
+      } catch {
+        // JSON이 아닌 오류 응답은 상태 코드로 안내합니다.
+      }
+      throw new Error(detail);
+    }
+
+    const generated = await response.json() as GeminiStoryResponse;
+    if (!generated.title || !generated.body || !generated.image) {
+      throw new Error('Gemini returned an incomplete story diary.');
+    }
+
+    return {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      title: generated.title,
+      body: generated.body,
+      concept: dailyMoment.trim(),
+      mood,
+      creativity,
+      createdAt: new Date().toISOString(),
+      itemIds: items.map((item) => item.id),
+      itemLabels: items.map(getLabel),
+      imageUrls: items.map((item) => item.imageUrl),
+      illustrationUrl: generated.image,
+      textModel: generated.textModel,
+      imageModel: generated.imageModel,
+    };
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('이야기와 그림 생성 시간이 너무 길어졌어요. 잠시 후 다시 시도해 주세요.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 export function createStoryDraft({

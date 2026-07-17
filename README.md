@@ -129,6 +129,18 @@ AI 서버를 실행하는 터미널에서 입력합니다.
 export GEMINI_API_KEY="본인_Gemini_API_Key"
 ```
 
+그림일기는 기본적으로 이야기에 `gemini-2.5-flash`, 이미지에
+`gemini-2.5-flash-image`를 사용합니다. 프로젝트에서 다른 Gemini 모델을 사용하려면
+서버 실행 전에 아래 환경변수를 지정합니다.
+
+```bash
+export GEMINI_STORY_MODEL="gemini-2.5-flash"
+export GEMINI_IMAGE_MODEL="gemini-2.5-flash-image"
+```
+
+이미지 모델 사용 권한과 할당량은 Gemini API 키가 속한 Google AI 프로젝트에서
+활성화되어 있어야 합니다.
+
 ### 5-2. 앱용 환경변수
 
 앱을 실행하는 터미널에서 입력합니다.

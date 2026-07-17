@@ -4,16 +4,20 @@ import io
 import logging
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
+import requests
 import torch
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
+from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from sam2.build_sam import build_sam2
 from sam2.sam2_image_predictor import SAM2ImagePredictor
+from story_generation import generate_story_diary
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +45,19 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class StoryObjectInput(BaseModel):
+    label: str = Field(min_length=1, max_length=100)
+    locationName: str | None = Field(default=None, max_length=200)
+    imageUrl: str | None = None
+
+
+class StoryGenerateInput(BaseModel):
+    dailyMoment: str = Field(default="", max_length=500)
+    mood: Literal["warm", "adventure", "comedy", "mystery"] = "warm"
+    creativity: int = Field(default=5, ge=1, le=9)
+    objects: list[StoryObjectInput] = Field(min_length=1, max_length=10)
 
 
 @lru_cache(maxsize=1)
@@ -382,4 +399,20 @@ async def segment(
         )
     except Exception as exc:
         logger.exception("SAM2 segmentation failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/story/generate")
+async def generate_story(payload: StoryGenerateInput) -> dict[str, Any]:
+    """사용자의 3가지 답변과 오늘의 객체로 Gemini 그림일기를 만듭니다."""
+    try:
+        return await run_in_threadpool(generate_story_diary, payload.model_dump())
+    except requests.HTTPError as exc:
+        response = exc.response
+        status = response.status_code if response is not None else 502
+        detail = response.text[:1000] if response is not None else str(exc)
+        logger.exception("Gemini story API request failed")
+        raise HTTPException(status_code=status, detail=detail) from exc
+    except Exception as exc:
+        logger.exception("Gemini story generation failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
