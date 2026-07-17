@@ -17,7 +17,10 @@ export type SavedBagItem = ImageSize & {
   storagePath: string | null;
   createdAt: string;
   objectLabel: string | null;
+  note: string | null;
   locationName: string | null;
+  locationLatitude: number | null;
+  locationLongitude: number | null;
 };
 
 type BagStackRow = {
@@ -32,7 +35,10 @@ type BagItemRow = {
   height: number | null;
   created_at: string;
   object_label: string | null;
+  note: string | null;
   location_name: string | null;
+  location_latitude: number | null;
+  location_longitude: number | null;
 };
 
 type UploadImageData = {
@@ -213,7 +219,7 @@ async function getDisplayUrl(storagePath: string | null, fallbackUrl: string) {
 async function loadItemsForStack(bagStackId: string): Promise<SavedBagItem[]> {
   const { data, error } = await supabase
     .from('bag_items')
-    .select('id,image_url,storage_path,width,height,created_at,object_label,location_name')
+    .select('id,image_url,storage_path,width,height,created_at,object_label,note,location_name,location_latitude,location_longitude')
     .eq('bag_stack_id', bagStackId)
     .order('created_at', { ascending: true })
     .returns<BagItemRow[]>();
@@ -227,7 +233,10 @@ async function loadItemsForStack(bagStackId: string): Promise<SavedBagItem[]> {
       error.code === '42703'
       || error.code === 'PGRST204'
       || error.message.includes('object_label')
-      || error.message.includes('location_name');
+      || error.message.includes('note')
+      || error.message.includes('location_name')
+      || error.message.includes('location_latitude')
+      || error.message.includes('location_longitude');
 
     if (!isMissingMetadataColumn) {
       throw error;
@@ -246,7 +255,10 @@ async function loadItemsForStack(bagStackId: string): Promise<SavedBagItem[]> {
     rows = (legacyData ?? []).map((item) => ({
       ...item,
       object_label: null,
+      note: null,
       location_name: null,
+      location_latitude: null,
+      location_longitude: null,
     })) as BagItemRow[];
   }
 
@@ -259,7 +271,10 @@ async function loadItemsForStack(bagStackId: string): Promise<SavedBagItem[]> {
       height: item.height ?? 92,
       createdAt: item.created_at,
       objectLabel: item.object_label,
+      note: item.note,
       locationName: item.location_name,
+      locationLatitude: item.location_latitude,
+      locationLongitude: item.location_longitude,
     })),
   );
 }
@@ -313,7 +328,13 @@ export async function saveBagItem(
   user: User,
   uri: string,
   imageSize: ImageSize,
-  metadata?: { objectLabel?: string | null; locationName?: string | null },
+  metadata?: {
+    objectLabel?: string | null;
+    note?: string | null;
+    locationName?: string | null;
+    locationLatitude?: number | null;
+    locationLongitude?: number | null;
+  },
 ): Promise<SavedBagItem> {
   const bagStackId = await getCurrentBagStackId(user);
   const imageData = await getUploadImageData(uri);
@@ -339,9 +360,12 @@ export async function saveBagItem(
       width: Math.round(imageSize.width),
       height: Math.round(imageSize.height),
       object_label: metadata?.objectLabel ?? null,
+      note: metadata?.note?.trim() || null,
       location_name: metadata?.locationName ?? null,
+      location_latitude: metadata?.locationLatitude ?? null,
+      location_longitude: metadata?.locationLongitude ?? null,
     })
-    .select('id,image_url,storage_path,width,height,created_at,object_label,location_name')
+    .select('id,image_url,storage_path,width,height,created_at,object_label,note,location_name,location_latitude,location_longitude')
     .single<BagItemRow>();
 
   if (insertError) {
@@ -357,7 +381,10 @@ export async function saveBagItem(
     height: item.height ?? imageSize.height,
     createdAt: item.created_at,
     objectLabel: item.object_label,
+    note: item.note,
     locationName: item.location_name,
+    locationLatitude: item.location_latitude,
+    locationLongitude: item.location_longitude,
   };
 }
 

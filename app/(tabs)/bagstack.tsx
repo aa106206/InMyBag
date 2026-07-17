@@ -1,4 +1,5 @@
 import * as ImagePicker from "expo-image-picker";
+import * as Location from "expo-location";
 import { Accelerometer } from "expo-sensors";
 import Matter, { Bodies, Body, Engine, World } from "matter-js";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -6,6 +7,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  KeyboardAvoidingView,
   LayoutChangeEvent,
   Modal,
   PanResponder,
@@ -14,6 +16,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -37,10 +40,13 @@ const MIN_OBJECT_SIZE = 72;
 const H_PADDING = 16;
 const WALL_THICKNESS = 60;
 const FIXED_TIMESTEP = 1000 / 60;
-const DEFAULT_PHOTO_LOCATION = {
-  name: "위치 정보 없음",
-  latitude: 37.5665,
-  longitude: 126.978,
+const MAX_PHOTO_NOTE_LENGTH = 120;
+const DEFAULT_PHOTO_LOCATION_NAME = "위치 정보 없음";
+
+type PhotoLocation = {
+  name: string | null;
+  latitude: number | null;
+  longitude: number | null;
 };
 
 type HistoryPhoto = {
@@ -69,6 +75,11 @@ type PhotoItem = ObjectSize & {
   dbId?: string;
   storagePath?: string | null;
   createdAt?: string;
+  objectLabel?: string | null;
+  note?: string | null;
+  locationName?: string | null;
+  locationLatitude?: number | null;
+  locationLongitude?: number | null;
   body: Matter.Body;
 };
 
@@ -79,6 +90,9 @@ type WorldSize = {
 
 type PendingPhoto = ObjectSize & {
   uri: string;
+  locationName?: string | null;
+  locationLatitude?: number | null;
+  locationLongitude?: number | null;
 };
 
 type Rect = {
@@ -845,6 +859,96 @@ function SegmentPreviewModal({
   );
 }
 
+function PhotoNoteModal({
+  visible,
+  photoUri,
+  objectLabel,
+  note,
+  isSaving,
+  onChangeNote,
+  onBack,
+  onSave,
+}: {
+  visible: boolean;
+  photoUri?: string;
+  objectLabel?: string | null;
+  note: string;
+  isSaving: boolean;
+  onChangeNote: (value: string) => void;
+  onBack: () => void;
+  onSave: () => void;
+}) {
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="fullScreen"
+      onRequestClose={onBack}
+    >
+      <KeyboardAvoidingView
+        style={styles.noteComposerScreen}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <View style={styles.noteComposerHeader}>
+          <Text style={styles.noteComposerTitle}>오늘의 기록</Text>
+          <Text style={styles.noteComposerSubtitle}>
+            이 물건과 함께 남기고 싶은 짧은 글을 적어보세요.
+          </Text>
+        </View>
+
+        <View style={styles.noteComposerContent}>
+          {photoUri ? (
+            <View style={styles.notePhotoPreview}>
+              <Image source={{ uri: photoUri }} style={styles.notePhotoImage} resizeMode="contain" />
+            </View>
+          ) : null}
+          <Text style={styles.noteObjectLabel}>{objectLabel || "가방 물건"}</Text>
+          <View style={styles.noteInputWrap}>
+            <TextInput
+              style={styles.noteInput}
+              value={note}
+              onChangeText={onChangeNote}
+              placeholder="오늘 이 물건과 함께한 순간을 적어보세요."
+              placeholderTextColor="rgba(255,255,255,0.42)"
+              multiline
+              maxLength={MAX_PHOTO_NOTE_LENGTH}
+              autoFocus
+              textAlignVertical="top"
+              editable={!isSaving}
+            />
+            <Text style={styles.noteCounter}>
+              {note.length}/{MAX_PHOTO_NOTE_LENGTH}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.noteComposerControls}>
+          <Pressable
+            style={[styles.previewButton, styles.previewSecondaryButton]}
+            onPress={onBack}
+            disabled={isSaving}
+          >
+            <Text style={styles.previewSecondaryText}>이전</Text>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.previewButton,
+              styles.previewPrimaryButton,
+              isSaving && styles.disabledButton,
+            ]}
+            onPress={onSave}
+            disabled={isSaving}
+          >
+            <Text style={styles.previewPrimaryText}>
+              {isSaving ? "저장 중..." : "가방에 추가"}
+            </Text>
+          </Pressable>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
 function formatCapturedAt(value?: string) {
   const date = value ? new Date(value) : new Date();
 
@@ -860,6 +964,58 @@ function formatCapturedAt(value?: string) {
   return `${date.getFullYear()}.${month}.${day} ${hours}:${minutes}`;
 }
 
+function formatLocationName(place?: Location.LocationGeocodedAddress | null) {
+  if (!place) {
+    return DEFAULT_PHOTO_LOCATION_NAME;
+  }
+
+  return [
+    place.city || place.subregion || place.region,
+    place.district,
+    place.street,
+    place.name,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    || DEFAULT_PHOTO_LOCATION_NAME;
+}
+
+async function getCurrentPhotoLocation(): Promise<PhotoLocation> {
+  try {
+    const permission = await Location.requestForegroundPermissionsAsync();
+
+    if (permission.status !== "granted") {
+      return {
+        name: DEFAULT_PHOTO_LOCATION_NAME,
+        latitude: null,
+        longitude: null,
+      };
+    }
+
+    const position = await Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.Balanced,
+    });
+    const { latitude, longitude } = position.coords;
+    let name = DEFAULT_PHOTO_LOCATION_NAME;
+
+    try {
+      const [place] = await Location.reverseGeocodeAsync({ latitude, longitude });
+      name = formatLocationName(place);
+    } catch (error) {
+      console.warn("Reverse geocode failed.", error);
+    }
+
+    return { name, latitude, longitude };
+  } catch (error) {
+    console.warn("Current photo location failed.", error);
+    return {
+      name: DEFAULT_PHOTO_LOCATION_NAME,
+      latitude: null,
+      longitude: null,
+    };
+  }
+}
+
 function BagPhotoInfoModal({
   photo,
   onDelete,
@@ -869,6 +1025,11 @@ function BagPhotoInfoModal({
   onDelete: () => void;
   onClose: () => void;
 }) {
+  const locationName = photo?.locationName || DEFAULT_PHOTO_LOCATION_NAME;
+  const hasPhotoLocation =
+    typeof photo?.locationLatitude === "number"
+    && typeof photo?.locationLongitude === "number";
+
   return (
     <Modal visible={!!photo} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.infoOverlay}>
@@ -884,7 +1045,7 @@ function BagPhotoInfoModal({
             >
               <View style={styles.infoHeader}>
                 <View style={styles.infoTitleBlock}>
-                  <Text style={styles.infoObjectName}>가방 물건</Text>
+                  <Text style={styles.infoObjectName}>{photo.objectLabel || "가방 물건"}</Text>
                   <Text style={styles.infoCapturedAt}>{formatCapturedAt(photo.createdAt)}</Text>
                 </View>
                 <Pressable style={styles.infoDeleteButton} onPress={onDelete}>
@@ -895,15 +1056,23 @@ function BagPhotoInfoModal({
               <View style={styles.infoImageStage}>
                 <Image source={{ uri: photo.uri }} style={styles.infoImage} resizeMode="contain" />
               </View>
+              {photo.note ? (
+                <View style={styles.infoNoteSection}>
+                  <Text style={styles.infoNoteTitle}>기록</Text>
+                  <Text style={styles.infoNoteText}>{photo.note}</Text>
+                </View>
+              ) : null}
               <View style={styles.infoMapSection}>
                 <Text style={styles.infoMapTitle}>찍은 위치</Text>
-                <Text style={styles.infoLocationName}>{DEFAULT_PHOTO_LOCATION.name}</Text>
-                <PhotoLocationMap
-                  latitude={DEFAULT_PHOTO_LOCATION.latitude}
-                  longitude={DEFAULT_PHOTO_LOCATION.longitude}
-                  title="가방 물건"
-                  description={DEFAULT_PHOTO_LOCATION.name}
-                />
+                <Text style={styles.infoLocationName}>{locationName}</Text>
+                {hasPhotoLocation ? (
+                  <PhotoLocationMap
+                    latitude={photo.locationLatitude as number}
+                    longitude={photo.locationLongitude as number}
+                    title={photo.objectLabel || "가방 물건"}
+                    description={locationName}
+                  />
+                ) : null}
               </View>
             </ScrollView>
           ) : null}
@@ -1074,6 +1243,8 @@ export default function BagStackScreen() {
   const [detectionBoxes, setDetectionBoxes] = useState<DinoDetectionBox[]>([]);
   const [selectedDetectionId, setSelectedDetectionId] = useState<string | null>(null);
   const [segmentedPreview, setSegmentedPreview] = useState<Sam2SegmentResult | null>(null);
+  const [isWritingPhotoNote, setIsWritingPhotoNote] = useState(false);
+  const [photoNote, setPhotoNote] = useState("");
 
   const syncWalls = useCallback((width: number, height: number) => {
     if (width <= 0 || height <= 0) {
@@ -1168,7 +1339,17 @@ export default function BagStackScreen() {
     (
       uri: string,
       imageSize?: ObjectSize,
-      savedItem?: { id?: string; dbId?: string; storagePath?: string | null; createdAt?: string },
+      savedItem?: {
+        id?: string;
+        dbId?: string;
+        storagePath?: string | null;
+        createdAt?: string;
+        objectLabel?: string | null;
+        note?: string | null;
+        locationName?: string | null;
+        locationLatitude?: number | null;
+        locationLongitude?: number | null;
+      },
     ): string | null => {
       const { width: worldWidth, height: worldHeight } = worldSizeRef.current;
       if (worldWidth <= 0 || worldHeight <= 0) {
@@ -1185,6 +1366,11 @@ export default function BagStackScreen() {
         dbId: savedItem?.dbId,
         storagePath: savedItem?.storagePath,
         createdAt: savedItem?.createdAt ?? new Date().toISOString(),
+        objectLabel: savedItem?.objectLabel,
+        note: savedItem?.note,
+        locationName: savedItem?.locationName,
+        locationLatitude: savedItem?.locationLatitude,
+        locationLongitude: savedItem?.locationLongitude,
         width: displaySize.width,
         height: displaySize.height,
         body,
@@ -1225,6 +1411,11 @@ export default function BagStackScreen() {
               dbId: item.id,
               storagePath: item.storagePath,
               createdAt: item.createdAt,
+              objectLabel: item.objectLabel,
+              note: item.note,
+              locationName: item.locationName,
+              locationLatitude: item.locationLatitude,
+              locationLongitude: item.locationLongitude,
             },
           );
         });
@@ -1281,13 +1472,23 @@ export default function BagStackScreen() {
       const asset = result.assets[0];
       const width = asset.width || 1024;
       const height = asset.height || 1024;
-      const nextPhoto = { uri: asset.uri, width, height };
+      const photoLocation = await getCurrentPhotoLocation();
+      const nextPhoto = {
+        uri: asset.uri,
+        width,
+        height,
+        locationName: photoLocation.name,
+        locationLatitude: photoLocation.latitude,
+        locationLongitude: photoLocation.longitude,
+      };
 
       setPendingPhoto(nextPhoto);
       setPromptBox(getDefaultPromptBox(width, height));
       setDetectionBoxes([]);
       setSelectedDetectionId(null);
       setSegmentedPreview(null);
+      setIsWritingPhotoNote(false);
+      setPhotoNote("");
 
       setIsDetecting(true);
       try {
@@ -1352,6 +1553,8 @@ export default function BagStackScreen() {
     setDetectionBoxes([]);
     setSelectedDetectionId(null);
     setSegmentedPreview(null);
+    setIsWritingPhotoNote(false);
+    setPhotoNote("");
   }, [isSegmenting]);
 
   const confirmSegmentPreview = useCallback(async () => {
@@ -1381,7 +1584,14 @@ export default function BagStackScreen() {
     }
 
     setSegmentedPreview(null);
+    setIsWritingPhotoNote(false);
   }, [isSegmenting]);
+
+  const openPhotoNoteComposer = useCallback(() => {
+    if (segmentedPreview) {
+      setIsWritingPhotoNote(true);
+    }
+  }, [segmentedPreview]);
 
   const acceptSegmentedPreview = useCallback(async () => {
     if (!segmentedPreview) {
@@ -1392,13 +1602,27 @@ export default function BagStackScreen() {
       width: segmentedPreview.width,
       height: segmentedPreview.height,
     };
-    const localPhotoId = spawnPhoto(segmentedPreview.uri, imageSize);
+    const objectLabel =
+      detectionBoxes.find((box) => box.id === selectedDetectionId)?.label ?? null;
+    const note = photoNote.trim() || null;
+    const capturedLocation = {
+      locationName: pendingPhoto?.locationName ?? DEFAULT_PHOTO_LOCATION_NAME,
+      locationLatitude: pendingPhoto?.locationLatitude ?? null,
+      locationLongitude: pendingPhoto?.locationLongitude ?? null,
+    };
+    const localPhotoId = spawnPhoto(segmentedPreview.uri, imageSize, {
+      objectLabel,
+      note,
+      ...capturedLocation,
+    });
 
     setPendingPhoto(null);
     setPromptBox(null);
     setDetectionBoxes([]);
     setSelectedDetectionId(null);
     setSegmentedPreview(null);
+    setIsWritingPhotoNote(false);
+    setPhotoNote("");
 
     if (!user || !localPhotoId) {
       return;
@@ -1406,8 +1630,11 @@ export default function BagStackScreen() {
 
     setIsSavingBagItem(true);
     try {
-      const objectLabel = detectionBoxes.find((box) => box.id === selectedDetectionId)?.label;
-      const savedItem = await saveBagItem(user, segmentedPreview.uri, imageSize, { objectLabel });
+      const savedItem = await saveBagItem(user, segmentedPreview.uri, imageSize, {
+        objectLabel,
+        note,
+        ...capturedLocation,
+      });
 
       setPhotos((current) =>
         current.map((photo) =>
@@ -1417,6 +1644,11 @@ export default function BagStackScreen() {
                 dbId: savedItem.id,
                 storagePath: savedItem.storagePath,
                 createdAt: savedItem.createdAt,
+                objectLabel: savedItem.objectLabel,
+                note: savedItem.note,
+                locationName: savedItem.locationName,
+                locationLatitude: savedItem.locationLatitude,
+                locationLongitude: savedItem.locationLongitude,
               }
             : photo,
         ),
@@ -1426,7 +1658,10 @@ export default function BagStackScreen() {
     } finally {
       setIsSavingBagItem(false);
     }
-  }, [detectionBoxes, segmentedPreview, selectedDetectionId, spawnPhoto, user]);
+  }, [detectionBoxes, pendingPhoto, photoNote, segmentedPreview, selectedDetectionId, spawnPhoto, user]);
+
+  const selectedObjectLabel =
+    detectionBoxes.find((box) => box.id === selectedDetectionId)?.label ?? null;
 
   return (
     <View style={styles.screen}>
@@ -1448,8 +1683,18 @@ export default function BagStackScreen() {
         onCancel={cancelSegmentPreview}
         onConfirm={confirmSegmentPreview}
         onRetune={retuneSegmentBox}
-        onAccept={acceptSegmentedPreview}
+        onAccept={openPhotoNoteComposer}
         isSaving={isSavingBagItem}
+      />
+      <PhotoNoteModal
+        visible={isWritingPhotoNote}
+        photoUri={segmentedPreview?.uri}
+        objectLabel={selectedObjectLabel}
+        note={photoNote}
+        isSaving={isSavingBagItem}
+        onChangeNote={setPhotoNote}
+        onBack={() => setIsWritingPhotoNote(false)}
+        onSave={acceptSegmentedPreview}
       />
 
       <View style={[styles.topBar, { paddingTop: insets.top + 12 }]}>
@@ -1626,6 +1871,25 @@ const styles = StyleSheet.create({
     width: "86%",
     height: 220,
   },
+  infoNoteSection: {
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderTopWidth: 1,
+    borderTopColor: Brand.border,
+    backgroundColor: Brand.surface,
+  },
+  infoNoteTitle: {
+    color: Brand.muted,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  infoNoteText: {
+    color: Brand.text,
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: "700",
+  },
   infoMapSection: {
     paddingHorizontal: 16,
     paddingTop: 14,
@@ -1736,6 +2000,86 @@ const styles = StyleSheet.create({
   previewScreen: {
     flex: 1,
     backgroundColor: "#050505",
+  },
+  noteComposerScreen: {
+    flex: 1,
+    backgroundColor: "#101014",
+  },
+  noteComposerHeader: {
+    paddingHorizontal: 20,
+    paddingTop: 56,
+    paddingBottom: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.12)",
+  },
+  noteComposerTitle: {
+    color: "#FFFFFF",
+    fontSize: 24,
+    fontWeight: "900",
+  },
+  noteComposerSubtitle: {
+    color: "rgba(255,255,255,0.68)",
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 6,
+  },
+  noteComposerContent: {
+    flex: 1,
+    gap: 14,
+    padding: 20,
+  },
+  notePhotoPreview: {
+    height: 210,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    borderRadius: 8,
+    backgroundColor: Brand.secondary,
+  },
+  notePhotoImage: {
+    width: "82%",
+    height: "82%",
+  },
+  noteObjectLabel: {
+    color: "#FFFFFF",
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  noteInputWrap: {
+    minHeight: 150,
+    overflow: "hidden",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
+    backgroundColor: "#19191F",
+  },
+  noteInput: {
+    minHeight: 116,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 8,
+    color: "#FFFFFF",
+    fontSize: 16,
+    lineHeight: 23,
+  },
+  noteCounter: {
+    alignSelf: "flex-end",
+    paddingHorizontal: 12,
+    paddingBottom: 10,
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 12,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
+  },
+  noteComposerControls: {
+    flexDirection: "row",
+    gap: 12,
+    paddingHorizontal: 18,
+    paddingTop: 12,
+    paddingBottom: 24,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "#101014",
   },
   previewHeader: {
     paddingHorizontal: 18,
