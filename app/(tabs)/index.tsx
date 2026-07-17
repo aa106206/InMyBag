@@ -1,7 +1,6 @@
 import { Accelerometer } from 'expo-sensors';
 import Matter, { Bodies, Body, Engine, World } from 'matter-js';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import {
   Image,
   LayoutChangeEvent,
@@ -17,6 +16,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { PhotoLocationMap } from '@/components/photo-location-map';
 import { Brand } from '@/constants/theme';
 
 const WALL_THICKNESS = 70;
@@ -587,29 +587,12 @@ function PhotoInfoModal({
               <View style={styles.infoMapSection}>
                 <Text style={styles.infoMapTitle}>찍은 위치</Text>
                 <Text style={styles.infoLocationName}>{photo.locationName}</Text>
-                <MapView
-                  provider={PROVIDER_GOOGLE}
-                  style={styles.map}
-                  initialRegion={{
-                    latitude: photo.latitude,
-                    longitude: photo.longitude,
-                    latitudeDelta: 0.008,
-                    longitudeDelta: 0.008,
-                  }}
-                  scrollEnabled={false}
-                  zoomEnabled={false}
-                  rotateEnabled={false}
-                  pitchEnabled={false}
-                >
-                  <Marker
-                    coordinate={{
-                      latitude: photo.latitude,
-                      longitude: photo.longitude,
-                    }}
-                    title={photo.name}
-                    description={photo.locationName}
-                  />
-                </MapView>
+                <PhotoLocationMap
+                  latitude={photo.latitude}
+                  longitude={photo.longitude}
+                  title={photo.name}
+                  description={photo.locationName}
+                />
               </View>
             </ScrollView>
           ) : null}
@@ -1098,14 +1081,6 @@ const styles = StyleSheet.create({
     color: Brand.muted,
     fontSize: 13,
     fontWeight: '800',
-  },
-  map: {
-    height: 180,
-    marginTop: 6,
-    overflow: 'hidden',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: Brand.border,
   },
   feedHeader: {
     backgroundColor: Brand.surface,
