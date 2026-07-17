@@ -18,6 +18,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { PhotoLocationMap } from "@/components/photo-location-map";
 import { Brand } from "@/constants/theme";
 import { useAuth } from "@/hooks/use-auth";
 import { deleteBagItem, loadCurrentBagItems, saveBagItem } from "@/services/bag-items";
@@ -36,6 +37,11 @@ const MIN_OBJECT_SIZE = 72;
 const H_PADDING = 16;
 const WALL_THICKNESS = 60;
 const FIXED_TIMESTEP = 1000 / 60;
+const DEFAULT_PHOTO_LOCATION = {
+  name: "위치 정보 없음",
+  latitude: 37.5665,
+  longitude: 126.978,
+};
 
 type HistoryPhoto = {
   id: string;
@@ -62,6 +68,7 @@ type PhotoItem = ObjectSize & {
   uri: string;
   dbId?: string;
   storagePath?: string | null;
+  createdAt?: string;
   body: Matter.Body;
 };
 
@@ -838,16 +845,84 @@ function SegmentPreviewModal({
   );
 }
 
+function formatCapturedAt(value?: string) {
+  const date = value ? new Date(value) : new Date();
+
+  if (Number.isNaN(date.getTime())) {
+    return "촬영 시간 정보 없음";
+  }
+
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  const hours = `${date.getHours()}`.padStart(2, "0");
+  const minutes = `${date.getMinutes()}`.padStart(2, "0");
+
+  return `${date.getFullYear()}.${month}.${day} ${hours}:${minutes}`;
+}
+
+function BagPhotoInfoModal({
+  photo,
+  onDelete,
+  onClose,
+}: {
+  photo: PhotoItem | null;
+  onDelete: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal visible={!!photo} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.infoOverlay}>
+        <View style={styles.infoCard}>
+          <Pressable style={styles.infoCloseButton} onPress={onClose} hitSlop={10}>
+            <Text style={styles.infoCloseText}>×</Text>
+          </Pressable>
+          {photo ? (
+            <ScrollView
+              style={styles.infoScroll}
+              contentContainerStyle={styles.infoScrollContent}
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={styles.infoHeader}>
+                <View style={styles.infoTitleBlock}>
+                  <Text style={styles.infoObjectName}>가방 물건</Text>
+                  <Text style={styles.infoCapturedAt}>{formatCapturedAt(photo.createdAt)}</Text>
+                </View>
+                <Pressable style={styles.infoDeleteButton} onPress={onDelete}>
+                  <Text style={styles.infoDeleteIcon}>×</Text>
+                  <Text style={styles.infoDeleteText}>삭제</Text>
+                </Pressable>
+              </View>
+              <View style={styles.infoImageStage}>
+                <Image source={{ uri: photo.uri }} style={styles.infoImage} resizeMode="contain" />
+              </View>
+              <View style={styles.infoMapSection}>
+                <Text style={styles.infoMapTitle}>찍은 위치</Text>
+                <Text style={styles.infoLocationName}>{DEFAULT_PHOTO_LOCATION.name}</Text>
+                <PhotoLocationMap
+                  latitude={DEFAULT_PHOTO_LOCATION.latitude}
+                  longitude={DEFAULT_PHOTO_LOCATION.longitude}
+                  title="가방 물건"
+                  description={DEFAULT_PHOTO_LOCATION.name}
+                />
+              </View>
+            </ScrollView>
+          ) : null}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function PhysicsPhoto({
   photo,
   frame,
   worldSize,
-  onDelete,
+  onOpenPhotoInfo,
 }: {
   photo: PhotoItem;
   frame: number;
   worldSize: WorldSize;
-  onDelete: (photo: PhotoItem) => void;
+  onOpenPhotoInfo: (photo: PhotoItem) => void;
 }) {
   void frame;
 
@@ -855,11 +930,12 @@ function PhysicsPhoto({
   const photoSizeRef = useRef<ObjectSize>({ width: photo.width, height: photo.height });
   const dragStartRef = useRef({ x: 0, y: 0 });
   const worldSizeRef = useRef(worldSize);
+  const openPhotoInfoRef = useRef(onOpenPhotoInfo);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [showDeleteBubble, setShowDeleteBubble] = useState(false);
   bodyRef.current = photo.body;
   photoSizeRef.current = { width: photo.width, height: photo.height };
   worldSizeRef.current = worldSize;
+  openPhotoInfoRef.current = onOpenPhotoInfo;
 
   const clearLongPressTimer = useCallback(() => {
     if (longPressTimerRef.current) {
@@ -880,7 +956,7 @@ function PhysicsPhoto({
         dragStartRef.current = { x: body.position.x, y: body.position.y };
         clearLongPressTimer();
         longPressTimerRef.current = setTimeout(() => {
-          setShowDeleteBubble(true);
+          openPhotoInfoRef.current(photo);
         }, 1000);
         Body.setStatic(body, true);
         markDragHeartbeat(body);
@@ -890,7 +966,6 @@ function PhysicsPhoto({
       onPanResponderMove: (_, gestureState) => {
         if (Math.abs(gestureState.dx) > 8 || Math.abs(gestureState.dy) > 8) {
           clearLongPressTimer();
-          setShowDeleteBubble(false);
         }
 
         const body = bodyRef.current;
@@ -933,39 +1008,21 @@ function PhysicsPhoto({
   const angle = photo.body.angle;
 
   return (
-    <>
-      {showDeleteBubble ? (
-        <Pressable
-          style={[
-            styles.deleteBubble,
-            {
-              left: x - 20,
-              top: Math.max(8, y - photo.height / 2 - 46),
-            },
-          ]}
-          hitSlop={10}
-          onPress={() => onDelete(photo)}
-        >
-          <Text style={styles.deleteBubbleText}>×</Text>
-          <View style={styles.deleteBubbleTail} />
-        </Pressable>
-      ) : null}
-      <View
-        style={[
-          styles.objectLayer,
-          {
-            left: x - photo.width / 2,
-            top: y - photo.height / 2,
-            width: photo.width,
-            height: photo.height,
-            transform: [{ rotate: `${angle}rad` }],
-          },
-        ]}
-        {...panResponder.panHandlers}
-      >
-        <Image source={{ uri: photo.uri }} style={styles.objectImage} resizeMode="contain" />
-      </View>
-    </>
+    <View
+      style={[
+        styles.objectLayer,
+        {
+          left: x - photo.width / 2,
+          top: y - photo.height / 2,
+          width: photo.width,
+          height: photo.height,
+          transform: [{ rotate: `${angle}rad` }],
+        },
+      ]}
+      {...panResponder.panHandlers}
+    >
+      <Image source={{ uri: photo.uri }} style={styles.objectImage} resizeMode="contain" />
+    </View>
   );
 }
 
@@ -1012,6 +1069,7 @@ export default function BagStackScreen() {
   const [isLoadingSavedItems, setIsLoadingSavedItems] = useState(false);
   const [isSavingBagItem, setIsSavingBagItem] = useState(false);
   const [pendingPhoto, setPendingPhoto] = useState<PendingPhoto | null>(null);
+  const [selectedPhoto, setSelectedPhoto] = useState<PhotoItem | null>(null);
   const [promptBox, setPromptBox] = useState<Sam2PromptBox | null>(null);
   const [detectionBoxes, setDetectionBoxes] = useState<DinoDetectionBox[]>([]);
   const [selectedDetectionId, setSelectedDetectionId] = useState<string | null>(null);
@@ -1110,7 +1168,7 @@ export default function BagStackScreen() {
     (
       uri: string,
       imageSize?: ObjectSize,
-      savedItem?: { id?: string; dbId?: string; storagePath?: string | null },
+      savedItem?: { id?: string; dbId?: string; storagePath?: string | null; createdAt?: string },
     ): string | null => {
       const { width: worldWidth, height: worldHeight } = worldSizeRef.current;
       if (worldWidth <= 0 || worldHeight <= 0) {
@@ -1126,6 +1184,7 @@ export default function BagStackScreen() {
         uri,
         dbId: savedItem?.dbId,
         storagePath: savedItem?.storagePath,
+        createdAt: savedItem?.createdAt ?? new Date().toISOString(),
         width: displaySize.width,
         height: displaySize.height,
         body,
@@ -1161,7 +1220,12 @@ export default function BagStackScreen() {
           spawnPhoto(
             item.imageUrl,
             { width: item.width, height: item.height },
-            { id: item.id, dbId: item.id, storagePath: item.storagePath },
+            {
+              id: item.id,
+              dbId: item.id,
+              storagePath: item.storagePath,
+              createdAt: item.createdAt,
+            },
           );
         });
       })
@@ -1190,6 +1254,15 @@ export default function BagStackScreen() {
       });
     }
   }, []);
+
+  const deleteSelectedPhoto = useCallback(() => {
+    if (!selectedPhoto) {
+      return;
+    }
+
+    deletePhoto(selectedPhoto);
+    setSelectedPhoto(null);
+  }, [deletePhoto, selectedPhoto]);
 
   const pickFromCamera = useCallback(async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
@@ -1343,6 +1416,7 @@ export default function BagStackScreen() {
                 ...photo,
                 dbId: savedItem.id,
                 storagePath: savedItem.storagePath,
+                createdAt: savedItem.createdAt,
               }
             : photo,
         ),
@@ -1356,6 +1430,11 @@ export default function BagStackScreen() {
 
   return (
     <View style={styles.screen}>
+      <BagPhotoInfoModal
+        photo={selectedPhoto}
+        onClose={() => setSelectedPhoto(null)}
+        onDelete={deleteSelectedPhoto}
+      />
       <SegmentPreviewModal
         photo={pendingPhoto}
         promptBox={promptBox}
@@ -1426,7 +1505,7 @@ export default function BagStackScreen() {
                 photo={photo}
                 frame={frame}
                 worldSize={worldSizeRef.current}
-                onDelete={deletePhoto}
+                onOpenPhotoInfo={setSelectedPhoto}
               />
             ))}
             <Pressable
@@ -1450,6 +1529,120 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: Brand.secondary,
+  },
+  infoOverlay: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 22,
+    backgroundColor: "rgba(17, 24, 39, 0.42)",
+  },
+  infoCard: {
+    width: "100%",
+    maxWidth: 360,
+    maxHeight: "66%",
+    overflow: "hidden",
+    borderRadius: 8,
+    backgroundColor: Brand.surface,
+    borderWidth: 1,
+    borderColor: Brand.border,
+  },
+  infoCloseButton: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    zIndex: 20,
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 14,
+    backgroundColor: "rgba(255, 255, 255, 0.84)",
+  },
+  infoCloseText: {
+    color: Brand.text,
+    fontSize: 24,
+    lineHeight: 26,
+    fontWeight: "900",
+  },
+  infoScroll: {
+    maxHeight: "100%",
+  },
+  infoScrollContent: {
+    paddingBottom: 14,
+  },
+  infoHeader: {
+    minHeight: 76,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Brand.border,
+  },
+  infoTitleBlock: {
+    flex: 1,
+    gap: 3,
+  },
+  infoObjectName: {
+    color: Brand.text,
+    fontSize: 21,
+    fontWeight: "900",
+  },
+  infoCapturedAt: {
+    color: Brand.muted,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  infoDeleteButton: {
+    minWidth: 76,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 7,
+    marginRight: 28,
+  },
+  infoDeleteIcon: {
+    color: "#E5484D",
+    fontSize: 31,
+    lineHeight: 35,
+    fontWeight: "900",
+  },
+  infoDeleteText: {
+    color: "#E5484D",
+    fontSize: 17,
+    fontWeight: "900",
+  },
+  infoImageStage: {
+    minHeight: 280,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+    backgroundColor: Brand.secondary,
+  },
+  infoImage: {
+    width: "86%",
+    height: 220,
+  },
+  infoMapSection: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    gap: 7,
+    borderTopWidth: 1,
+    borderTopColor: Brand.border,
+    backgroundColor: Brand.surface,
+  },
+  infoMapTitle: {
+    color: Brand.text,
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  infoLocationName: {
+    color: Brand.muted,
+    fontSize: 13,
+    fontWeight: "800",
   },
   topBar: {
     flexDirection: "row",
@@ -1787,35 +1980,6 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
     backgroundColor: "transparent",
-  },
-  deleteBubble: {
-    position: "absolute",
-    zIndex: 20,
-    width: 40,
-    height: 34,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 17,
-    backgroundColor: Brand.text,
-    borderWidth: 2,
-    borderColor: Brand.surface,
-  },
-  deleteBubbleText: {
-    color: Brand.surface,
-    fontSize: 25,
-    lineHeight: 27,
-    fontWeight: "900",
-  },
-  deleteBubbleTail: {
-    position: "absolute",
-    bottom: -6,
-    width: 12,
-    height: 12,
-    borderRightWidth: 2,
-    borderBottomWidth: 2,
-    borderColor: Brand.surface,
-    backgroundColor: Brand.text,
-    transform: [{ rotate: "45deg" }],
   },
   history: {
     flex: 1,
