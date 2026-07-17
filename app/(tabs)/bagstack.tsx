@@ -21,7 +21,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { PhotoLocationMap } from "@/components/photo-location-map";
 import { Brand } from "@/constants/theme";
 import { useAuth } from "@/hooks/use-auth";
-import { deleteBagItem, loadCurrentBagItems, saveBagItem } from "@/services/bag-items";
+import {
+  deleteBagItem,
+  getBagItemPersistenceErrorMessage,
+  loadCurrentBagItems,
+  saveBagItem,
+} from "@/services/bag-items";
 import {
   detectObjectsWithDino,
   DinoDetectionBox,
@@ -1231,6 +1236,7 @@ export default function BagStackScreen() {
       })
       .catch((error) => {
         console.warn("Saved bag items load failed.", error);
+        Alert.alert("가방 불러오기 실패", getBagItemPersistenceErrorMessage(error));
       })
       .finally(() => {
         if (!cancelled) {
@@ -1388,41 +1394,42 @@ export default function BagStackScreen() {
       return;
     }
 
+    if (!user) {
+      Alert.alert("로그인 필요", "객체를 저장하려면 다시 로그인해 주세요.");
+      return;
+    }
+
     const imageSize = {
       width: segmentedPreview.width,
       height: segmentedPreview.height,
     };
-    const localPhotoId = spawnPhoto(segmentedPreview.uri, imageSize);
-
-    setPendingPhoto(null);
-    setPromptBox(null);
-    setDetectionBoxes([]);
-    setSelectedDetectionId(null);
-    setSegmentedPreview(null);
-
-    if (!user || !localPhotoId) {
-      return;
-    }
+    const objectLabel = detectionBoxes
+      .find((box) => box.id === selectedDetectionId)
+      ?.label
+      .trim() || null;
 
     setIsSavingBagItem(true);
     try {
-      const objectLabel = detectionBoxes.find((box) => box.id === selectedDetectionId)?.label;
       const savedItem = await saveBagItem(user, segmentedPreview.uri, imageSize, { objectLabel });
-
-      setPhotos((current) =>
-        current.map((photo) =>
-          photo.id === localPhotoId
-            ? {
-                ...photo,
-                dbId: savedItem.id,
-                storagePath: savedItem.storagePath,
-                createdAt: savedItem.createdAt,
-              }
-            : photo,
-        ),
+      spawnPhoto(
+        savedItem.imageUrl,
+        { width: savedItem.width, height: savedItem.height },
+        {
+          id: savedItem.id,
+          dbId: savedItem.id,
+          storagePath: savedItem.storagePath,
+          createdAt: savedItem.createdAt,
+        },
       );
+
+      setPendingPhoto(null);
+      setPromptBox(null);
+      setDetectionBoxes([]);
+      setSelectedDetectionId(null);
+      setSegmentedPreview(null);
     } catch (error) {
       console.warn("Saved bag item upload failed.", error);
+      Alert.alert("가방 저장 실패", getBagItemPersistenceErrorMessage(error));
     } finally {
       setIsSavingBagItem(false);
     }

@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { SavedBagItem } from '@/services/bag-items';
 
 export type StoryLength = 'short' | 'medium' | 'long';
-export type StoryMood = 'warm' | 'adventure' | 'mystery';
+export type StoryMood = 'warm' | 'adventure' | 'comedy' | 'mystery';
 
 export type GeneratedStory = {
   id: string;
@@ -38,8 +38,8 @@ export async function saveStory(userId: string, story: GeneratedStory) {
   return next;
 }
 
-function getLabel(item: SavedBagItem, index: number) {
-  return item.objectLabel?.trim() || `오늘의 물건 ${index + 1}`;
+function getLabel(item: SavedBagItem) {
+  return item.objectLabel?.trim() || '이름 미등록 물건';
 }
 
 export function createStoryDraft({
@@ -70,9 +70,14 @@ export function createStoryDraft({
       ending: `집으로 돌아오는 길, 가방 속의 물건들은 그대로였지만 나는 오늘을 조금 더 좋아하게 되었다.`,
     },
     adventure: {
-      title: `${subject}, 밀밀의 출구를 찾다`,
+      title: `${subject}, 비밀의 출구를 찾다`,
       opening: `${place}에서 ${subject}을(를) 모으는 순간, 바닥에 작은 지도 하나가 펼쳐졌다. 지도의 끝은 아무도 모르는 문을 가리키고 있었다.`,
       ending: `마지막 문이 열리자 보물 대신 오늘의 웃음이 나왔다. 우리는 그것을 가방 깊숙한 곳에 잘 넣어 두었다.`,
+    },
+    comedy: {
+      title: `${subject}의 대단히 엉뚱한 작전`,
+      opening: `${place}에서 ${subject}을(를) 모아 두자 작은 회의가 열렸다. 안건은 단 하나, 오늘을 세상에서 가장 웃긴 하루로 만드는 것이었다.`,
+      ending: `작전은 예상과 완전히 다르게 흘러갔지만 모두가 웃었으니 성공이었다. 물건들은 아무 일도 없었던 척 다시 가방 속으로 돌아갔다.`,
     },
     mystery: {
       title: `${subject}와 사라진 오후`,

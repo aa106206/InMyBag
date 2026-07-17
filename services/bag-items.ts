@@ -6,6 +6,66 @@ import { supabase } from '@/services/supabase';
 const BAG_ITEMS_BUCKET = 'bag-items';
 const SIGNED_URL_SECONDS = 60 * 60;
 
+type PersistenceStage = 'auth' | 'image' | 'storage' | 'database';
+
+export class BagItemPersistenceError extends Error {
+  stage: PersistenceStage;
+  code: string | null;
+
+  constructor(stage: PersistenceStage, error: unknown) {
+    const source = error as { message?: string; code?: string; statusCode?: string | number };
+    super(source?.message || '가방 아이템 저장에 실패했어요.');
+    this.name = 'BagItemPersistenceError';
+    this.stage = stage;
+    this.code = source?.code || (source?.statusCode ? String(source.statusCode) : null);
+  }
+}
+
+function persistenceError(stage: PersistenceStage, error: unknown) {
+  return error instanceof BagItemPersistenceError ? error : new BagItemPersistenceError(stage, error);
+}
+
+export function getBagItemPersistenceErrorMessage(error: unknown) {
+  const failure = error instanceof BagItemPersistenceError
+    ? error
+    : new BagItemPersistenceError('database', error);
+  const normalizedMessage = failure.message.toLowerCase();
+
+  if (failure.stage === 'auth') {
+    return '로그인 세션을 확인하지 못했어요. 다시 로그인한 뒤 시도해 주세요.';
+  }
+
+  if (failure.stage === 'storage') {
+    if (normalizedMessage.includes('bucket') && normalizedMessage.includes('not found')) {
+      return 'Supabase Storage에 bag-items 버킷이 없어요. 프로젝트의 Supabase 마이그레이션을 적용해 주세요.';
+    }
+
+    if (normalizedMessage.includes('row-level security') || normalizedMessage.includes('unauthorized')) {
+      return 'Storage 업로드 권한이 없어요. bag-items 버킷의 RLS 정책을 확인해 주세요.';
+    }
+
+    return '분리한 객체 이미지를 Storage에 업로드하지 못했어요. 네트워크와 Supabase 설정을 확인해 주세요.';
+  }
+
+  if (failure.stage === 'image') {
+    return 'SAM2가 만든 객체 이미지를 업로드할 파일로 변환하지 못했어요. 객체를 다시 선택해 주세요.';
+  }
+
+  if (
+    normalizedMessage.includes('object_label')
+    || normalizedMessage.includes('location_name')
+    || normalizedMessage.includes('schema cache')
+  ) {
+    return 'Supabase DB 스키마가 현재 앱과 다릅니다. 프로젝트의 가방 아이템 마이그레이션을 적용해 주세요.';
+  }
+
+  if (normalizedMessage.includes('row-level security') || normalizedMessage.includes('permission')) {
+    return '가방 데이터를 저장할 권한이 없어요. Supabase RLS 정책을 확인해 주세요.';
+  }
+
+  return '객체를 Supabase에 저장하지 못했어요. 잠시 후 다시 시도해 주세요.';
+}
+
 type ImageSize = {
   width: number;
   height: number;
@@ -36,7 +96,7 @@ type BagItemRow = {
 };
 
 type UploadImageData = {
-  body: ArrayBuffer | Uint8Array<ArrayBuffer>;
+  body: ArrayBuffer;
   contentType: string;
   extension: string;
 };
@@ -67,15 +127,16 @@ function getImageContentType(extension: string) {
   return `image/${extension === 'jpg' ? 'jpeg' : extension}`;
 }
 
-function decodeBase64ToBytes(base64: string) {
+function decodeBase64ToArrayBuffer(base64: string) {
   const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
+  const buffer = new ArrayBuffer(binary.length);
+  const bytes = new Uint8Array(buffer);
 
   for (let index = 0; index < binary.length; index += 1) {
     bytes[index] = binary.charCodeAt(index);
   }
 
-  return bytes;
+  return buffer;
 }
 
 async function getUploadImageData(uri: string): Promise<UploadImageData> {
@@ -91,7 +152,7 @@ async function getUploadImageData(uri: string): Promise<UploadImageData> {
     }
 
     return {
-      body: decodeBase64ToBytes(payload),
+      body: decodeBase64ToArrayBuffer(payload),
       contentType,
       extension: getImageExtension(uri, contentType),
     };
@@ -99,9 +160,10 @@ async function getUploadImageData(uri: string): Promise<UploadImageData> {
 
   if (uri.startsWith('file://') || uri.startsWith('content://')) {
     const extension = getImageExtension(uri);
+    const bytes = await new ExpoFile(uri).bytes();
 
     return {
-      body: await new ExpoFile(uri).bytes(),
+      body: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
       contentType: getImageContentType(extension),
       extension,
     };
@@ -122,6 +184,14 @@ async function getUploadImageData(uri: string): Promise<UploadImageData> {
   };
 }
 
+async function assertAuthenticatedUser(user: User) {
+  const { data, error } = await supabase.auth.getSession();
+
+  if (error || !data.session || data.session.user.id !== user.id) {
+    throw persistenceError('auth', error || new Error('Authenticated user mismatch'));
+  }
+}
+
 async function ensureProfile(user: User) {
   const { error } = await supabase
     .from('profiles')
@@ -129,9 +199,9 @@ async function ensureProfile(user: User) {
       {
         id: user.id,
         email: user.email ?? null,
-        username: user.email ?? user.id,
+        username: user.user_metadata?.username ?? user.email ?? user.id,
       },
-      { onConflict: 'id' },
+      { onConflict: 'id', ignoreDuplicates: true },
     );
 
   if (error) {
@@ -204,7 +274,11 @@ async function getDisplayUrl(storagePath: string | null, fallbackUrl: string) {
     .createSignedUrl(storagePath, SIGNED_URL_SECONDS);
 
   if (error || !data?.signedUrl) {
-    return fallbackUrl;
+    if (fallbackUrl.startsWith('http://') || fallbackUrl.startsWith('https://') || fallbackUrl.startsWith('data:')) {
+      return fallbackUrl;
+    }
+
+    throw persistenceError('storage', error || new Error('Signed URL creation failed'));
   }
 
   return data.signedUrl;
@@ -315,8 +389,23 @@ export async function saveBagItem(
   imageSize: ImageSize,
   metadata?: { objectLabel?: string | null; locationName?: string | null },
 ): Promise<SavedBagItem> {
-  const bagStackId = await getCurrentBagStackId(user);
-  const imageData = await getUploadImageData(uri);
+  await assertAuthenticatedUser(user);
+
+  let bagStackId: string;
+  let imageData: UploadImageData;
+
+  try {
+    bagStackId = await getCurrentBagStackId(user);
+  } catch (error) {
+    throw persistenceError('database', error);
+  }
+
+  try {
+    imageData = await getUploadImageData(uri);
+  } catch (error) {
+    throw persistenceError('image', error);
+  }
+
   const storagePath = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${imageData.extension}`;
 
   const { error: uploadError } = await supabase.storage
@@ -327,7 +416,7 @@ export async function saveBagItem(
     });
 
   if (uploadError) {
-    throw uploadError;
+    throw persistenceError('storage', uploadError);
   }
 
   const { data: item, error: insertError } = await supabase
@@ -345,8 +434,15 @@ export async function saveBagItem(
     .single<BagItemRow>();
 
   if (insertError) {
-    await supabase.storage.from(BAG_ITEMS_BUCKET).remove([storagePath]);
-    throw insertError;
+    const { error: rollbackError } = await supabase.storage
+      .from(BAG_ITEMS_BUCKET)
+      .remove([storagePath]);
+
+    if (rollbackError) {
+      console.warn('Orphaned bag item image cleanup failed.', rollbackError);
+    }
+
+    throw persistenceError('database', insertError);
   }
 
   return {
@@ -369,6 +465,12 @@ export async function deleteBagItem(itemId: string, storagePath?: string | null)
   }
 
   if (storagePath) {
-    await supabase.storage.from(BAG_ITEMS_BUCKET).remove([storagePath]);
+    const { error: storageError } = await supabase.storage
+      .from(BAG_ITEMS_BUCKET)
+      .remove([storagePath]);
+
+    if (storageError) {
+      console.warn('Deleted bag item image cleanup failed.', storageError);
+    }
   }
 }
