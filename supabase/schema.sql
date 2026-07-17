@@ -155,6 +155,74 @@ create policy "Users can delete their own bag item images"
     and auth.uid()::text = split_part(name, '/', 1)
   );
 
+create table if not exists public.friendships (
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  friend_id uuid not null references public.profiles(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (user_id, friend_id),
+  check (user_id <> friend_id)
+);
+
+alter table public.friendships enable row level security;
+
+drop policy if exists "Users can read their own friendships" on public.friendships;
+create policy "Users can read their own friendships"
+  on public.friendships
+  for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can delete their own friendships" on public.friendships;
+create policy "Users can delete their own friendships"
+  on public.friendships
+  for delete
+  using (auth.uid() = user_id);
+
+-- 초대 링크 수락: 초대한 사람(inviter)과 현재 로그인한 사용자를 양방향으로 친구로 만든다.
+-- friendships에는 insert 정책이 없으므로 친구 관계는 이 함수를 통해서만 생성된다.
+create or replace function public.accept_friend_invite(inviter uuid)
+returns json
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  invitee uuid := auth.uid();
+  inviter_profile record;
+  inserted_count integer;
+begin
+  if invitee is null then
+    raise exception 'AUTH_REQUIRED';
+  end if;
+
+  if inviter = invitee then
+    raise exception 'SELF_INVITE';
+  end if;
+
+  select id, username, email
+    into inviter_profile
+    from public.profiles
+   where id = inviter;
+
+  if not found then
+    raise exception 'INVITER_NOT_FOUND';
+  end if;
+
+  insert into public.friendships (user_id, friend_id)
+  values (invitee, inviter), (inviter, invitee)
+  on conflict do nothing;
+
+  get diagnostics inserted_count = row_count;
+
+  return json_build_object(
+    'friend_id', inviter_profile.id,
+    'friend_name', coalesce(inviter_profile.username, inviter_profile.email),
+    'already_friends', inserted_count = 0
+  );
+end;
+$$;
+
+revoke execute on function public.accept_friend_invite(uuid) from public, anon;
+grant execute on function public.accept_friend_invite(uuid) to authenticated;
+
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
