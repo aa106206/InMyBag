@@ -1,0 +1,108 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+import type { SavedBagItem } from '@/services/bag-items';
+
+export type StoryLength = 'short' | 'medium' | 'long';
+export type StoryMood = 'warm' | 'adventure' | 'mystery';
+
+export type GeneratedStory = {
+  id: string;
+  title: string;
+  body: string;
+  concept: string;
+  mood: StoryMood;
+  creativity: number;
+  createdAt: string;
+  itemIds: string[];
+  itemLabels: string[];
+  imageUrls: string[];
+};
+
+const storageKey = (userId: string) => `snapbag:stories:${userId}`;
+
+export async function loadStories(userId: string): Promise<GeneratedStory[]> {
+  const value = await AsyncStorage.getItem(storageKey(userId));
+  if (!value) return [];
+
+  try {
+    return JSON.parse(value) as GeneratedStory[];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveStory(userId: string, story: GeneratedStory) {
+  const current = await loadStories(userId);
+  const next = [story, ...current.filter((item) => item.id !== story.id)];
+  await AsyncStorage.setItem(storageKey(userId), JSON.stringify(next));
+  return next;
+}
+
+function getLabel(item: SavedBagItem, index: number) {
+  return item.objectLabel?.trim() || `오늘의 물건 ${index + 1}`;
+}
+
+export function createStoryDraft({
+  items,
+  concept,
+  length,
+  mood,
+  creativity,
+}: {
+  items: SavedBagItem[];
+  concept: string;
+  length: StoryLength;
+  mood: StoryMood;
+  creativity: number;
+}): GeneratedStory {
+  const labels = items.map(getLabel);
+  const places = [...new Set(items.map((item) => item.locationName).filter(Boolean))] as string[];
+  const subject = labels.length === 1
+    ? labels[0]
+    : `${labels.slice(0, -1).join(', ')}와 ${labels.at(-1)}`;
+  const place = places[0] || '오늘 내가 머물던 곳';
+  const idea = concept.trim() || '평범한 물건들이 시작한 작은 모험';
+
+  const moodCopy = {
+    warm: {
+      title: `${subject}이 남긴 작은 안부`,
+      opening: `${place}에서 ${subject}을(를) 만났다. 오늘은 왜인지 익숙한 물건들이 나에게 조용히 말을 거는 것만 같았다.`,
+      ending: `집으로 돌아오는 길, 가방 속의 물건들은 그대로였지만 나는 오늘을 조금 더 좋아하게 되었다.`,
+    },
+    adventure: {
+      title: `${subject}, 밀밀의 출구를 찾다`,
+      opening: `${place}에서 ${subject}을(를) 모으는 순간, 바닥에 작은 지도 하나가 펼쳐졌다. 지도의 끝은 아무도 모르는 문을 가리키고 있었다.`,
+      ending: `마지막 문이 열리자 보물 대신 오늘의 웃음이 나왔다. 우리는 그것을 가방 깊숙한 곳에 잘 넣어 두었다.`,
+    },
+    mystery: {
+      title: `${subject}와 사라진 오후`,
+      opening: `${place}에서 ${subject}을(를) 발견했을 때, 시계가 정확히 일분 동안 멈춰다. 다시 움직이기 시작한 세상에서는 작은 것 하나가 달라져 있었다.`,
+      ending: `답은 아직 모르지만, ${subject}을(를) 볼 때마다 그 일분이 다시 시작될 것 같다. 그래서 오늘의 가방은 조금 조용한 비밀이 되었다.`,
+    },
+  }[mood];
+
+  const middle = `우리의 이야기는 ‘${idea}’에서 시작됐다. ${labels.map((label, index) => `${label}은(는) ${index % 2 === 0 ? '길을 밝히는 표식이' : '놓친 단서를 찾는 친구가'} 되었다.`).join(' ')}`;
+  const vivid = creativity >= 7
+    ? ` 그때 하늘에서 파스텔빛 종이비가 내렸고, 우리의 발자국은 작은 별자리로 남았다.`
+    : creativity >= 4
+      ? ` 익숙한 풍경은 한 장의 그림책처럼 천천히 넘어갔다.`
+      : '';
+  const extra = `잠시 멈춰 서로를 바라보니, 별것 아닌 하루도 어떻게 기억하느냐에 따라 특별한 이야기가 된다는 걸 알게 되었다.`;
+
+  const paragraphs = [moodCopy.opening, `${middle}${vivid}`];
+  if (length === 'long') paragraphs.push(extra);
+  if (length !== 'short') paragraphs.push(moodCopy.ending);
+
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    title: moodCopy.title,
+    body: paragraphs.join('\n\n'),
+    concept: idea,
+    mood,
+    creativity,
+    createdAt: new Date().toISOString(),
+    itemIds: items.map((item) => item.id),
+    itemLabels: labels,
+    imageUrls: items.map((item) => item.imageUrl),
+  };
+}

@@ -1,7 +1,9 @@
 import { Accelerometer } from 'expo-sensors';
+import { useFocusEffect } from 'expo-router';
 import Matter, { Bodies, Body, Engine, World } from 'matter-js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Image,
   LayoutChangeEvent,
   Modal,
@@ -11,44 +13,47 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  type ImageSourcePropType,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { PhotoLocationMap } from '@/components/photo-location-map';
 import { Brand } from '@/constants/theme';
+import { useAuth } from '@/hooks/use-auth';
+import { loadFriendBagItems, SavedBagItem } from '@/services/bag-items';
+import { fetchFriends, FriendProfile } from '@/services/friends';
 
 const WALL_THICKNESS = 70;
 const FIXED_TIMESTEP = 1000 / 60;
 const FEED_LOGO = require('@/assets/images/snapbag-feed-logo.png');
 
-type BagPhotoSeed = {
-  id: string;
-  source: ImageSourcePropType;
-  name: string;
-  capturedAt: string;
-  locationName: string;
-  latitude: number;
-  longitude: number;
-  x: number;
-  y: number;
-  size: number;
-  angle: number;
+const DEFAULT_OBJECT_SIZE = 92;
+const MAX_OBJECT_SIZE = 132;
+const MIN_OBJECT_SIZE = 72;
+
+// 친구 가방 아이템을 캔버스에 흩뿌릴 때 쓰는 상대 좌표들.
+const SCATTER_POINTS = [
+  { x: 0.28, y: 0.22 },
+  { x: 0.66, y: 0.21 },
+  { x: 0.39, y: 0.58 },
+  { x: 0.69, y: 0.64 },
+  { x: 0.5, y: 0.4 },
+];
+
+type ObjectSize = {
+  width: number;
+  height: number;
 };
 
-type PhysicsPhotoItem = BagPhotoSeed & {
+type PhysicsPhotoItem = SavedBagItem & {
   body: Matter.Body;
-};
-
-type PhotoLikeState = {
-  count: number;
-  liked: boolean;
+  displayWidth: number;
+  displayHeight: number;
+  size: number;
 };
 
 type SelectedPhotoInfo = {
-  photo: BagPhotoSeed;
-  photoKey: string;
+  item: SavedBagItem;
+  friendName: string;
 };
 
 type WorldSize = {
@@ -56,276 +61,38 @@ type WorldSize = {
   height: number;
 };
 
-type FriendBag = {
-  id: string;
-  user: string;
-  avatar: ImageSourcePropType;
-  photos: BagPhotoSeed[];
-};
+function getObjectDisplaySize(width?: number, height?: number): ObjectSize {
+  if (!width || !height || width <= 0 || height <= 0) {
+    return { width: DEFAULT_OBJECT_SIZE, height: DEFAULT_OBJECT_SIZE };
+  }
 
-type FriendHistoryItem = {
-  id: string;
-  date: string;
-  photos: BagPhotoSeed[];
-};
+  const longestSide = Math.max(width, height);
+  const shortestSide = Math.min(width, height);
+  const maxScale = MAX_OBJECT_SIZE / longestSide;
+  const minScale = MIN_OBJECT_SIZE / shortestSide;
+  const scale = Math.max(maxScale, minScale);
 
-const initialLikeCounts: Record<string, number> = {
-  'james-laptop': 21,
-  'james-coffee': 18,
-  'james-notebook': 14,
-  'james-earbuds': 22,
-  'hyunbin-shoes': 15,
-  'hyunbin-bottle': 9,
-  'hyunbin-watch': 17,
-  'hyunbin-towel': 11,
-  'dongjun-tablet': 24,
-  'dongjun-book': 16,
-  'dongjun-pen': 8,
-  'dongjun-wallet': 19,
-  'yuna-camera': 20,
-  'yuna-sunglasses': 13,
-  'yuna-keys': 10,
-  'yuna-pouch': 23,
-};
+  return {
+    width: Math.round(width * scale),
+    height: Math.round(height * scale),
+  };
+}
 
-const friendBags: FriendBag[] = [
-  {
-    id: 'james',
-    user: 'james',
-    avatar: require('@/assets/images/friend-profiles/james-default.png'),
-    photos: [
-      {
-        id: 'laptop',
-        source: require('@/assets/images/feed-objects/laptop.png'),
-        name: '노트북',
-        capturedAt: '2026.06.17 10:32',
-        locationName: '서울 성수동 카페',
-        latitude: 37.5446,
-        longitude: 127.0557,
-        x: 0.28,
-        y: 0.22,
-        size: 122,
-        angle: -0.16,
-      },
-      {
-        id: 'coffee',
-        source: require('@/assets/images/feed-objects/coffee.png'),
-        name: '커피',
-        capturedAt: '2026.06.17 10:40',
-        locationName: '서울 성수동 카페',
-        latitude: 37.5446,
-        longitude: 127.0557,
-        x: 0.66,
-        y: 0.21,
-        size: 102,
-        angle: 0.12,
-      },
-      {
-        id: 'notebook',
-        source: require('@/assets/images/feed-objects/notebook.png'),
-        name: '노트',
-        capturedAt: '2026.06.17 11:08',
-        locationName: '서울 성수동 카페',
-        latitude: 37.5446,
-        longitude: 127.0557,
-        x: 0.39,
-        y: 0.58,
-        size: 132,
-        angle: 0.08,
-      },
-      {
-        id: 'earbuds',
-        source: require('@/assets/images/feed-objects/earbuds.png'),
-        name: '이어버드',
-        capturedAt: '2026.06.17 11:20',
-        locationName: '서울 성수동 카페',
-        latitude: 37.5446,
-        longitude: 127.0557,
-        x: 0.69,
-        y: 0.64,
-        size: 96,
-        angle: -0.2,
-      },
-    ],
-  },
-  {
-    id: 'hyunbin',
-    user: 'hyunbin',
-    avatar: { uri: 'https://images.unsplash.com/photo-1527980965255-d3b416303d12?w=240' },
-    photos: [
-      {
-        id: 'shoes',
-        source: require('@/assets/images/feed-objects/shoes.png'),
-        name: '운동화',
-        capturedAt: '2026.06.16 14:12',
-        locationName: '한강공원',
-        latitude: 37.5285,
-        longitude: 126.9349,
-        x: 0.3,
-        y: 0.28,
-        size: 126,
-        angle: 0.14,
-      },
-      {
-        id: 'bottle',
-        source: require('@/assets/images/feed-objects/bottle.png'),
-        name: '물병',
-        capturedAt: '2026.06.16 14:25',
-        locationName: '한강공원',
-        latitude: 37.5285,
-        longitude: 126.9349,
-        x: 0.65,
-        y: 0.29,
-        size: 94,
-        angle: -0.1,
-      },
-      {
-        id: 'watch',
-        source: require('@/assets/images/feed-objects/watch.png'),
-        name: '스마트워치',
-        capturedAt: '2026.06.16 15:02',
-        locationName: '한강공원',
-        latitude: 37.5285,
-        longitude: 126.9349,
-        x: 0.35,
-        y: 0.66,
-        size: 102,
-        angle: -0.18,
-      },
-      {
-        id: 'towel',
-        source: require('@/assets/images/feed-objects/towel.png'),
-        name: '타월',
-        capturedAt: '2026.06.16 15:18',
-        locationName: '한강공원',
-        latitude: 37.5285,
-        longitude: 126.9349,
-        x: 0.65,
-        y: 0.63,
-        size: 122,
-        angle: 0.18,
-      },
-    ],
-  },
-  {
-    id: 'dongjun',
-    user: 'dongjun',
-    avatar: require('@/assets/images/friend-profiles/dongjun-dog.png'),
-    photos: [
-      {
-        id: 'tablet',
-        source: require('@/assets/images/feed-objects/tablet.png'),
-        name: '태블릿',
-        capturedAt: '2026.06.15 09:44',
-        locationName: '강남역 스터디룸',
-        latitude: 37.4979,
-        longitude: 127.0276,
-        x: 0.29,
-        y: 0.23,
-        size: 122,
-        angle: -0.09,
-      },
-      {
-        id: 'book',
-        source: require('@/assets/images/feed-objects/book.png'),
-        name: '책',
-        capturedAt: '2026.06.15 10:05',
-        locationName: '강남역 스터디룸',
-        latitude: 37.4979,
-        longitude: 127.0276,
-        x: 0.64,
-        y: 0.26,
-        size: 116,
-        angle: 0.17,
-      },
-      {
-        id: 'pen',
-        source: require('@/assets/images/feed-objects/pen.png'),
-        name: '펜',
-        capturedAt: '2026.06.15 10:37',
-        locationName: '강남역 스터디룸',
-        latitude: 37.4979,
-        longitude: 127.0276,
-        x: 0.34,
-        y: 0.65,
-        size: 102,
-        angle: 0.18,
-      },
-      {
-        id: 'wallet',
-        source: require('@/assets/images/feed-objects/wallet.png'),
-        name: '지갑',
-        capturedAt: '2026.06.15 11:03',
-        locationName: '강남역 스터디룸',
-        latitude: 37.4979,
-        longitude: 127.0276,
-        x: 0.68,
-        y: 0.63,
-        size: 104,
-        angle: -0.14,
-      },
-    ],
-  },
-  {
-    id: 'yuna',
-    user: 'y.yuna',
-    avatar: require('@/assets/images/friend-profiles/y-yuna-character.png'),
-    photos: [
-      {
-        id: 'camera',
-        source: require('@/assets/images/feed-objects/camera.png'),
-        name: '카메라',
-        capturedAt: '2026.06.14 16:22',
-        locationName: '북촌 한옥마을',
-        latitude: 37.5826,
-        longitude: 126.983,
-        x: 0.3,
-        y: 0.25,
-        size: 124,
-        angle: 0.12,
-      },
-      {
-        id: 'sunglasses',
-        source: require('@/assets/images/feed-objects/sunglasses.png'),
-        name: '선글라스',
-        capturedAt: '2026.06.14 16:40',
-        locationName: '북촌 한옥마을',
-        latitude: 37.5826,
-        longitude: 126.983,
-        x: 0.67,
-        y: 0.24,
-        size: 104,
-        angle: -0.16,
-      },
-      {
-        id: 'keys',
-        source: require('@/assets/images/feed-objects/keys.png'),
-        name: '열쇠',
-        capturedAt: '2026.06.14 17:06',
-        locationName: '북촌 한옥마을',
-        latitude: 37.5826,
-        longitude: 126.983,
-        x: 0.33,
-        y: 0.64,
-        size: 96,
-        angle: -0.2,
-      },
-      {
-        id: 'pouch',
-        source: require('@/assets/images/feed-objects/pouch.png'),
-        name: '파우치',
-        capturedAt: '2026.06.14 17:31',
-        locationName: '북촌 한옥마을',
-        latitude: 37.5826,
-        longitude: 126.983,
-        x: 0.65,
-        y: 0.62,
-        size: 126,
-        angle: 0.14,
-      },
-    ],
-  },
-];
+function formatCapturedAt(iso: string) {
+  const date = new Date(iso);
+
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+
+  const pad = (value: number) => String(value).padStart(2, '0');
+
+  return `${date.getFullYear()}.${pad(date.getMonth() + 1)}.${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function getDisplayHandle(friend: FriendProfile) {
+  return friend.username.split('@')[0];
+}
 
 function createWalls(width: number, height: number) {
   const half = WALL_THICKNESS / 2;
@@ -381,6 +148,21 @@ function clampPhotoPosition(
 }
 
 function clampBodyInsideWorld(body: Matter.Body, worldSize: WorldSize, photoSize: number) {
+  // 좌표가 NaN으로 오염되면 화면 왼쪽 위에 붙은 것처럼 보이므로 안전한 위치로 되살린다.
+  if (
+    !Number.isFinite(body.position.x) ||
+    !Number.isFinite(body.position.y) ||
+    !Number.isFinite(body.angle)
+  ) {
+    if (worldSize.width > 0 && worldSize.height > 0) {
+      Body.setPosition(body, { x: worldSize.width / 2, y: worldSize.height / 3 });
+      Body.setAngle(body, 0);
+      Body.setVelocity(body, { x: 0, y: 0 });
+      Body.setAngularVelocity(body, 0);
+    }
+    return;
+  }
+
   const nextPosition = clampPhotoPosition(body.position, worldSize, photoSize);
   const didClamp =
     nextPosition.x !== body.position.x || nextPosition.y !== body.position.y;
@@ -391,18 +173,45 @@ function clampBodyInsideWorld(body: Matter.Body, worldSize: WorldSize, photoSize
   }
 }
 
+const STUCK_DRAG_TIMEOUT_MS = 2000;
+// 릴리즈 속도 상한. 너무 빠르면 한 프레임에 벽을 뚫고 월드 밖으로 나갈 수 있다(터널링).
+const MAX_THROW_SPEED = 16;
+
+function limitThrowSpeed(value: number) {
+  return Math.max(-MAX_THROW_SPEED, Math.min(MAX_THROW_SPEED, value));
+}
+
+type DraggedBody = Matter.Body & { dragHeartbeatAt?: number };
+
+function markDragHeartbeat(body: Matter.Body) {
+  (body as DraggedBody).dragHeartbeatAt = Date.now();
+}
+
+// 드래그가 비정상적으로 끊겨 static(고정)으로 남은 사진을 감지해 즉시 다시 움직이게 한다.
+// 정상 드래그 중에는 grant/move에서 하트비트가 계속 갱신되므로 여기에 걸리지 않는다.
+function releaseBodyIfStuck(body: Matter.Body) {
+  if (body.label !== 'photo' || !body.isStatic) {
+    return;
+  }
+
+  const heartbeatAt = (body as DraggedBody).dragHeartbeatAt ?? 0;
+  if (Date.now() - heartbeatAt > STUCK_DRAG_TIMEOUT_MS) {
+    Body.setStatic(body, false);
+    Body.setVelocity(body, { x: 0, y: 0 });
+    Body.setAngularVelocity(body, 0);
+  }
+}
+
 function PhysicsPhoto({
   photo,
   frame,
   worldSize,
-  onPhotoDragChange,
   onOpenPhotoInfo,
 }: {
   photo: PhysicsPhotoItem;
   frame: number;
   worldSize: WorldSize;
-  onPhotoDragChange: (isDragging: boolean) => void;
-  onOpenPhotoInfo: (photo: BagPhotoSeed) => void;
+  onOpenPhotoInfo: (item: SavedBagItem) => void;
 }) {
   void frame;
 
@@ -412,11 +221,9 @@ function PhysicsPhoto({
   const isDraggingRef = useRef(false);
   const dragFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const onPhotoDragChangeRef = useRef(onPhotoDragChange);
   const onOpenPhotoInfoRef = useRef(onOpenPhotoInfo);
   bodyRef.current = photo.body;
   worldSizeRef.current = worldSize;
-  onPhotoDragChangeRef.current = onPhotoDragChange;
   onOpenPhotoInfoRef.current = onOpenPhotoInfo;
 
   const clearDragFallback = () => {
@@ -438,7 +245,6 @@ function PhysicsPhoto({
     clearDragFallback();
     clearLongPressTimer();
     isDraggingRef.current = false;
-    onPhotoDragChangeRef.current(false);
     Body.setPosition(
       body,
       clampPhotoPosition(body.position, worldSizeRef.current, photo.size),
@@ -463,7 +269,6 @@ function PhysicsPhoto({
       if (isDraggingRef.current) {
         const body = bodyRef.current;
         isDraggingRef.current = false;
-        onPhotoDragChangeRef.current(false);
         Body.setStatic(body, false);
       }
     },
@@ -481,7 +286,6 @@ function PhysicsPhoto({
       onPanResponderGrant: () => {
         const body = bodyRef.current;
         isDraggingRef.current = true;
-        onPhotoDragChangeRef.current(true);
         clearLongPressTimer();
         longPressTimerRef.current = setTimeout(() => {
           onOpenPhotoInfoRef.current(photo);
@@ -489,11 +293,13 @@ function PhysicsPhoto({
         scheduleDragFallback();
         dragStartRef.current = { x: body.position.x, y: body.position.y };
         Body.setStatic(body, true);
+        markDragHeartbeat(body);
         Body.setVelocity(body, { x: 0, y: 0 });
         Body.setAngularVelocity(body, 0);
       },
       onPanResponderMove: (_, gestureState) => {
         const body = bodyRef.current;
+        markDragHeartbeat(body);
         scheduleDragFallback();
         if (Math.abs(gestureState.dx) > 8 || Math.abs(gestureState.dy) > 8) {
           clearLongPressTimer();
@@ -512,8 +318,8 @@ function PhysicsPhoto({
       },
       onPanResponderRelease: (_, gestureState) => {
         endPhotoDrag({
-          x: gestureState.vx * 4,
-          y: gestureState.vy * 4,
+          x: limitThrowSpeed(gestureState.vx * 4),
+          y: limitThrowSpeed(gestureState.vy * 4),
         });
       },
       onPanResponderTerminate: () => {
@@ -529,72 +335,48 @@ function PhysicsPhoto({
       style={[
         styles.photoCard,
         {
-          left: x - photo.size / 2,
-          top: y - photo.size / 2,
-          width: photo.size,
-          height: photo.size,
+          left: x - photo.displayWidth / 2,
+          top: y - photo.displayHeight / 2,
+          width: photo.displayWidth,
+          height: photo.displayHeight,
           transform: [{ rotate: `${photo.body.angle}rad` }],
         },
       ]}
       {...panResponder.panHandlers}
     >
-      <Image source={photo.source} style={styles.photo} />
+      <Image source={{ uri: photo.imageUrl }} style={styles.photo} />
     </View>
   );
 }
 
 function PhotoInfoModal({
   selectedPhoto,
-  likeState,
-  onToggleLike,
   onClose,
 }: {
   selectedPhoto: SelectedPhotoInfo | null;
-  likeState: PhotoLikeState;
-  onToggleLike: () => void;
   onClose: () => void;
 }) {
-  const photo = selectedPhoto?.photo;
-
   return (
-    <Modal visible={!!photo} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible={!!selectedPhoto} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.infoOverlay}>
         <View style={styles.infoCard}>
           <Pressable style={styles.infoCloseButton} onPress={onClose} hitSlop={10}>
             <Text style={styles.infoCloseText}>×</Text>
           </Pressable>
-          {photo ? (
-            <ScrollView
-              style={styles.infoScroll}
-              contentContainerStyle={styles.infoScrollContent}
-              showsVerticalScrollIndicator={false}
-            >
+          {selectedPhoto ? (
+            <>
               <View style={styles.infoHeader}>
                 <View style={styles.infoTitleBlock}>
-                  <Text style={styles.infoObjectName}>{photo.name}</Text>
-                  <Text style={styles.infoCapturedAt}>{photo.capturedAt}</Text>
-                </View>
-                <Pressable style={styles.infoLikeButton} onPress={onToggleLike}>
-                  <Text style={[styles.infoLikeHeart, likeState.liked ? styles.likeHeartActive : undefined]}>
-                    {likeState.liked ? '♥' : '♡'}
+                  <Text style={styles.infoObjectName}>@{selectedPhoto.friendName}의 물건</Text>
+                  <Text style={styles.infoCapturedAt}>
+                    {formatCapturedAt(selectedPhoto.item.createdAt)}에 담았어요
                   </Text>
-                  <Text style={styles.infoLikeCount}>{likeState.count}</Text>
-                </Pressable>
+                </View>
               </View>
               <View style={styles.infoImageStage}>
-                <Image source={photo.source} style={styles.infoImage} />
+                <Image source={{ uri: selectedPhoto.item.imageUrl }} style={styles.infoImage} />
               </View>
-              <View style={styles.infoMapSection}>
-                <Text style={styles.infoMapTitle}>찍은 위치</Text>
-                <Text style={styles.infoLocationName}>{photo.locationName}</Text>
-                <PhotoLocationMap
-                  latitude={photo.latitude}
-                  longitude={photo.longitude}
-                  title={photo.name}
-                  description={photo.locationName}
-                />
-              </View>
-            </ScrollView>
+            </>
           ) : null}
         </View>
       </View>
@@ -610,12 +392,36 @@ function FeedBrandLogo() {
   );
 }
 
+function FriendAvatar({
+  friend,
+  size,
+  style,
+}: {
+  friend: FriendProfile;
+  size: number;
+  style?: object;
+}) {
+  const circleStyle = { width: size, height: size, borderRadius: size / 2 };
+
+  if (friend.avatarUrl) {
+    return <Image source={{ uri: friend.avatarUrl }} style={[circleStyle, style]} />;
+  }
+
+  return (
+    <View style={[circleStyle, styles.avatarFallback, style]}>
+      <Text style={[styles.avatarInitial, { fontSize: size * 0.4 }]}>
+        {friend.username.slice(0, 1).toUpperCase()}
+      </Text>
+    </View>
+  );
+}
+
 function FriendStoryRail({
   friends,
   selectedFriendId,
   onSelectFriend,
 }: {
-  friends: FriendBag[];
+  friends: FriendProfile[];
   selectedFriendId: string;
   onSelectFriend: (friendId: string) => void;
 }) {
@@ -638,10 +444,10 @@ function FriendStoryRail({
             onPress={() => onSelectFriend(friend.id)}
           >
             <View style={[styles.storyAvatarRing, isSelected ? styles.storyAvatarRingActive : undefined]}>
-              <Image source={friend.avatar} style={styles.storyAvatar} />
+              <FriendAvatar friend={friend} size={52} />
             </View>
             <Text numberOfLines={1} ellipsizeMode="tail" style={styles.storyUser}>
-              {friend.user}
+              {getDisplayHandle(friend)}
             </Text>
           </Pressable>
         );
@@ -650,135 +456,87 @@ function FriendStoryRail({
   );
 }
 
-function getFriendHistoryItems(bag: FriendBag): FriendHistoryItem[] {
-  const dates = [
-    '6/17',
-    '6/5',
-    '6/4',
-    '5/28',
-    '5/20',
-    '5/11',
-    '5/3',
-    '4/26',
-    '4/18',
-    '4/9',
-    '3/31',
-    '3/22',
-  ];
-
-  return dates.map((date, index) => {
-    const photos = bag.photos
-      .slice()
-      .sort((a, b) => ((a.id.charCodeAt(0) + index) % 5) - ((b.id.charCodeAt(0) + index) % 5))
-      .slice(0, index % 2 === 0 ? 3 : 2);
-
-    return {
-      id: `${bag.id}-${date}`,
-      date,
-      photos,
-    };
-  });
-}
-
-function FriendHistoryCard({ item }: { item: FriendHistoryItem }) {
-  return (
-    <View style={styles.historyCard}>
-      <Text style={styles.historyDate}>{item.date}</Text>
-      <View style={styles.historyPreview}>
-        {item.photos.map((photo, index) => (
-          <View
-            key={`${item.id}-${photo.id}`}
-            style={[
-              styles.historyPhoto,
-              {
-                left: `${12 + ((index * 22 + photo.x * 30) % 44)}%`,
-                top: `${18 + ((index * 19 + photo.y * 28) % 42)}%`,
-                width: Math.max(46, photo.size * 0.46),
-                height: Math.max(46, photo.size * 0.46),
-                transform: [{ rotate: `${photo.angle}rad` }],
-              },
-            ]}
-          >
-            <Image source={photo.source} style={styles.photo} />
-          </View>
-        ))}
-      </View>
-    </View>
-  );
-}
-
 function FriendBagPage({
-  bag,
-  onPhotoDragChange,
+  friend,
+  items,
+  isLoading,
   onOpenPhotoInfo,
 }: {
-  bag: FriendBag;
-  onPhotoDragChange: (isDragging: boolean) => void;
+  friend: FriendProfile;
+  items: SavedBagItem[];
+  isLoading: boolean;
   onOpenPhotoInfo: (info: SelectedPhotoInfo) => void;
 }) {
   const engineRef = useRef(Engine.create({ gravity: { x: 0, y: 0, scale: 0.002 } }));
   const wallsRef = useRef<Matter.Body[]>([]);
   const worldSizeRef = useRef({ width: 0, height: 0 });
+  const photosRef = useRef<PhysicsPhotoItem[]>([]);
   const [photos, setPhotos] = useState<PhysicsPhotoItem[]>([]);
+  const [canvasSize, setCanvasSize] = useState<WorldSize>({ width: 0, height: 0 });
   const [frame, setFrame] = useState(0);
-  const [showHistory, setShowHistory] = useState(false);
-  const historyItems = getFriendHistoryItems(bag);
+  photosRef.current = photos;
 
-  const syncWorld = useCallback(
-    (canvasWidth: number, canvasHeight: number) => {
-      if (canvasWidth <= 0 || canvasHeight <= 0) {
-        return;
-      }
+  const onCanvasLayout = useCallback((event: LayoutChangeEvent) => {
+    const { width: canvasWidth, height: canvasHeight } = event.nativeEvent.layout;
+    setCanvasSize((current) =>
+      current.width === canvasWidth && current.height === canvasHeight
+        ? current
+        : { width: canvasWidth, height: canvasHeight },
+    );
+  }, []);
 
-      const world = engineRef.current.world;
-      photos.forEach((photo) => World.remove(world, photo.body));
-      wallsRef.current.forEach((wall) => World.remove(world, wall));
-      wallsRef.current = createWalls(canvasWidth, canvasHeight);
-      World.add(world, wallsRef.current);
+  useEffect(() => {
+    if (canvasSize.width <= 0 || canvasSize.height <= 0) {
+      return;
+    }
 
-      const nextPhotos = bag.photos.map((photo) => {
-        const body = Bodies.rectangle(
-          canvasWidth * photo.x,
-          canvasHeight * photo.y,
-          photo.size,
-          photo.size,
-          {
-            label: 'photo',
-            restitution: 0.24,
-            friction: 0.68,
-            frictionStatic: 0.86,
-            frictionAir: 0.04,
-            density: 0.0012,
-            chamfer: { radius: 2 },
-          },
-        );
+    const world = engineRef.current.world;
+    photosRef.current.forEach((photo) => World.remove(world, photo.body));
+    wallsRef.current.forEach((wall) => World.remove(world, wall));
+    wallsRef.current = createWalls(canvasSize.width, canvasSize.height);
+    World.add(world, wallsRef.current);
+    worldSizeRef.current = { width: canvasSize.width, height: canvasSize.height };
 
-        (body as Matter.Body & { photoSize: number }).photoSize = photo.size;
-        Body.setAngle(body, photo.angle);
-        World.add(world, body);
+    const nextPhotos = items.map((item, index) => {
+      const displaySize = getObjectDisplaySize(item.width, item.height);
+      const size = Math.max(displaySize.width, displaySize.height);
+      const scatter = SCATTER_POINTS[index % SCATTER_POINTS.length];
+      const cycleOffset = Math.floor(index / SCATTER_POINTS.length) * 14;
+      const position = clampPhotoPosition(
+        {
+          x: canvasSize.width * scatter.x + cycleOffset,
+          y: canvasSize.height * scatter.y + cycleOffset,
+        },
+        worldSizeRef.current,
+        size,
+      );
 
-        return { ...photo, body };
+      const body = Bodies.rectangle(position.x, position.y, displaySize.width, displaySize.height, {
+        label: 'photo',
+        restitution: 0.24,
+        friction: 0.68,
+        frictionStatic: 0.86,
+        frictionAir: 0.04,
+        density: 0.0012,
+        chamfer: { radius: 2 },
       });
 
-      worldSizeRef.current = { width: canvasWidth, height: canvasHeight };
-      setPhotos(nextPhotos);
-    },
-    [bag.photos, photos],
-  );
+      (body as Matter.Body & { photoSize: number }).photoSize = size;
+      Body.setAngle(body, ((index % 5) - 2) * 0.08);
+      World.add(world, body);
 
-  const onCanvasLayout = useCallback(
-    (event: LayoutChangeEvent) => {
-      const { width: canvasWidth, height: canvasHeight } = event.nativeEvent.layout;
-      const current = worldSizeRef.current;
+      return {
+        ...item,
+        body,
+        displayWidth: displaySize.width,
+        displayHeight: displaySize.height,
+        size,
+      };
+    });
 
-      if (current.width === canvasWidth && current.height === canvasHeight) {
-        return;
-      }
-
-      syncWorld(canvasWidth, canvasHeight);
-    },
-    [syncWorld],
-  );
+    setPhotos(nextPhotos);
+    // photosRef를 통해 이전 사진들을 정리하므로 photos는 의존성에서 제외한다.
+  }, [items, canvasSize]);
 
   useEffect(() => {
     const engine = engineRef.current;
@@ -793,6 +551,7 @@ function FriendBagPage({
         if (body.label === 'photo') {
           const photoSize = (body as Matter.Body & { photoSize?: number }).photoSize ?? 0;
           clampBodyInsideWorld(body, worldSizeRef.current, photoSize);
+          releaseBodyIfStuck(body);
         }
       });
       setFrame((value) => (value + 1) % 1000000);
@@ -843,55 +602,45 @@ function FriendBagPage({
     return () => subscription.remove();
   }, []);
 
+  const friendHandle = getDisplayHandle(friend);
+
   return (
     <View style={styles.bagPanel}>
       <View style={styles.bagPanelHeader}>
         <View style={styles.bagIdentity}>
-          <Image source={bag.avatar} style={styles.bagIdentityAvatar} />
+          <FriendAvatar friend={friend} size={34} style={styles.bagIdentityAvatar} />
           <Text numberOfLines={1} ellipsizeMode="tail" style={styles.bagIdentityUser}>
-            @{bag.user}
+            @{friendHandle}
           </Text>
         </View>
-        <Pressable
-          style={[styles.modeToggle, styles.bagModeToggle, showHistory ? styles.modeToggleActive : undefined]}
-          onPress={() => setShowHistory((value) => !value)}
-        >
-          <View style={[styles.toggleThumb, showHistory ? styles.toggleThumbActive : undefined]} />
-        </Pressable>
       </View>
       <View style={styles.bagPanelBody}>
-        {showHistory ? (
-          <ScrollView
-            style={styles.history}
-            contentContainerStyle={styles.historyContent}
-            showsVerticalScrollIndicator={false}
-          >
-            <View style={styles.historyGrid}>
-              {historyItems.map((item) => (
-                <FriendHistoryCard key={item.id} item={item} />
-              ))}
+        <View style={styles.canvas} onLayout={onCanvasLayout}>
+          {isLoading ? (
+            <View style={styles.canvasCenter}>
+              <ActivityIndicator color={Brand.primary} size="large" />
             </View>
-          </ScrollView>
-        ) : (
-          <View style={styles.canvas} onLayout={onCanvasLayout}>
-            {photos.map((photo) => (
-              (() => {
-                const photoKey = `${bag.id}-${photo.id}`;
-
-                return (
-                  <PhysicsPhoto
-                    key={photo.id}
-                    photo={photo}
-                    frame={frame}
-                    worldSize={worldSizeRef.current}
-                    onPhotoDragChange={onPhotoDragChange}
-                    onOpenPhotoInfo={() => onOpenPhotoInfo({ photo, photoKey })}
-                  />
-                );
-              })()
-            ))}
-          </View>
-        )}
+          ) : (
+            <>
+              {photos.length === 0 ? (
+                <View style={styles.canvasCenter}>
+                  <Text style={styles.emptyBagText}>
+                    @{friendHandle}님의 가방이 아직 비어 있어요.
+                  </Text>
+                </View>
+              ) : null}
+              {photos.map((photo) => (
+                <PhysicsPhoto
+                  key={photo.id}
+                  photo={photo}
+                  frame={frame}
+                  worldSize={worldSizeRef.current}
+                  onOpenPhotoInfo={(item) => onOpenPhotoInfo({ item, friendName: friendHandle })}
+                />
+              ))}
+            </>
+          )}
+        </View>
       </View>
     </View>
   );
@@ -899,64 +648,131 @@ function FriendBagPage({
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const [selectedFriendId, setSelectedFriendId] = useState(friendBags[0]?.id ?? '');
-  const [photoLikes, setPhotoLikes] = useState<Record<string, PhotoLikeState>>({});
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
+
+  const [friends, setFriends] = useState<FriendProfile[]>([]);
+  const [isLoadingFriends, setIsLoadingFriends] = useState(true);
+  const [selectedFriendId, setSelectedFriendId] = useState<string | null>(null);
+  const [bagItems, setBagItems] = useState<SavedBagItem[]>([]);
+  const [isLoadingItems, setIsLoadingItems] = useState(false);
   const [selectedPhotoInfo, setSelectedPhotoInfo] = useState<SelectedPhotoInfo | null>(null);
-  const selectedBag = friendBags.find((bag) => bag.id === selectedFriendId) ?? friendBags[0];
 
-  const togglePhotoLike = useCallback((photoKey: string) => {
-    setPhotoLikes((current) => {
-      const previous = current[photoKey] ?? {
-        count: initialLikeCounts[photoKey] ?? 0,
-        liked: false,
-      };
-      const liked = !previous.liked;
-
-      return {
-        ...current,
-        [photoKey]: {
-          liked,
-          count: previous.count + (liked ? 1 : -1),
-        },
-      };
-    });
-  }, []);
-
-  const selectedPhotoLikeState = selectedPhotoInfo
-    ? photoLikes[selectedPhotoInfo.photoKey] ?? {
-        count: initialLikeCounts[selectedPhotoInfo.photoKey] ?? 0,
-        liked: false,
+  // 피드 탭에 들어올 때마다 친구 목록을 새로 불러온다 (새로 추가한 친구 반영).
+  useFocusEffect(
+    useCallback(() => {
+      if (!userId) {
+        setFriends([]);
+        setIsLoadingFriends(false);
+        return;
       }
-    : { count: 0, liked: false };
+
+      let cancelled = false;
+
+      (async () => {
+        try {
+          const nextFriends = await fetchFriends(userId);
+          if (!cancelled) {
+            setFriends(nextFriends);
+          }
+        } catch (error) {
+          console.warn('Failed to load friends for feed', error);
+        } finally {
+          if (!cancelled) {
+            setIsLoadingFriends(false);
+          }
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    }, [userId]),
+  );
+
+  // 선택된 친구가 목록에 없으면 첫 번째 친구를 선택한다.
+  useEffect(() => {
+    if (friends.length === 0) {
+      setSelectedFriendId(null);
+      return;
+    }
+
+    if (!selectedFriendId || !friends.some((friend) => friend.id === selectedFriendId)) {
+      setSelectedFriendId(friends[0].id);
+    }
+  }, [friends, selectedFriendId]);
+
+  // 선택된 친구의 가방 아이템을 불러온다.
+  useEffect(() => {
+    if (!selectedFriendId) {
+      setBagItems([]);
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoadingItems(true);
+
+    loadFriendBagItems(selectedFriendId)
+      .then((items) => {
+        if (!cancelled) {
+          setBagItems(items);
+        }
+      })
+      .catch((error) => {
+        console.warn('Failed to load friend bag items', error);
+        if (!cancelled) {
+          setBagItems([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoadingItems(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedFriendId]);
+
+  const selectedFriend = friends.find((friend) => friend.id === selectedFriendId) ?? null;
 
   return (
     <View style={styles.container}>
       <PhotoInfoModal
         selectedPhoto={selectedPhotoInfo}
-        likeState={selectedPhotoLikeState}
-        onToggleLike={() => {
-          if (selectedPhotoInfo) {
-            togglePhotoLike(selectedPhotoInfo.photoKey);
-          }
-        }}
         onClose={() => setSelectedPhotoInfo(null)}
       />
       <View style={[styles.feedHeader, { paddingTop: insets.top + 6 }]}>
         <FeedBrandLogo />
-        <FriendStoryRail
-          friends={friendBags}
-          selectedFriendId={selectedFriendId}
-          onSelectFriend={setSelectedFriendId}
-        />
+        {friends.length > 0 ? (
+          <FriendStoryRail
+            friends={friends}
+            selectedFriendId={selectedFriendId ?? ''}
+            onSelectFriend={setSelectedFriendId}
+          />
+        ) : null}
       </View>
-      {selectedBag ? (
+      {isLoadingFriends ? (
+        <View style={styles.feedCenter}>
+          <ActivityIndicator color={Brand.primary} size="large" />
+        </View>
+      ) : selectedFriend ? (
         <FriendBagPage
-          key={selectedBag.id}
-          bag={selectedBag}
-          onPhotoDragChange={() => {}}
+          key={selectedFriend.id}
+          friend={selectedFriend}
+          items={bagItems}
+          isLoading={isLoadingItems}
           onOpenPhotoInfo={setSelectedPhotoInfo}
         />
-      ) : null}
+      ) : (
+        <View style={styles.feedCenter}>
+          <Text style={styles.emptyFeedTitle}>아직 친구가 없어요</Text>
+          <Text style={styles.emptyFeedText}>
+            설정 → 친구 관리에서 친구를 추가하면{'\n'}이곳에서 친구의 가방을 구경할 수 있어요.
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -1001,12 +817,6 @@ const styles = StyleSheet.create({
     lineHeight: 26,
     fontWeight: '900',
   },
-  infoScroll: {
-    maxHeight: '100%',
-  },
-  infoScrollContent: {
-    paddingBottom: 14,
-  },
   infoHeader: {
     minHeight: 76,
     flexDirection: 'row',
@@ -1021,6 +831,7 @@ const styles = StyleSheet.create({
   infoTitleBlock: {
     flex: 1,
     gap: 3,
+    paddingRight: 28,
   },
   infoObjectName: {
     color: Brand.text,
@@ -1031,26 +842,6 @@ const styles = StyleSheet.create({
     color: Brand.muted,
     fontSize: 13,
     fontWeight: '800',
-  },
-  infoLikeButton: {
-    minWidth: 72,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    gap: 7,
-    marginRight: 28,
-  },
-  infoLikeHeart: {
-    color: Brand.text,
-    fontSize: 31,
-    lineHeight: 35,
-    fontWeight: '900',
-  },
-  infoLikeCount: {
-    color: Brand.text,
-    fontSize: 22,
-    fontWeight: '900',
-    fontVariant: ['tabular-nums'],
   },
   infoImageStage: {
     minHeight: 280,
@@ -1064,24 +855,6 @@ const styles = StyleSheet.create({
     height: 220,
     resizeMode: 'contain',
   },
-  infoMapSection: {
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    gap: 7,
-    borderTopWidth: 1,
-    borderTopColor: Brand.border,
-    backgroundColor: Brand.surface,
-  },
-  infoMapTitle: {
-    color: Brand.text,
-    fontSize: 16,
-    fontWeight: '900',
-  },
-  infoLocationName: {
-    color: Brand.muted,
-    fontSize: 13,
-    fontWeight: '800',
-  },
   feedHeader: {
     backgroundColor: Brand.surface,
     borderBottomWidth: 0,
@@ -1094,6 +867,25 @@ const styles = StyleSheet.create({
   feedLogoImage: {
     width: 226,
     height: 46,
+  },
+  feedCenter: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingHorizontal: 32,
+  },
+  emptyFeedTitle: {
+    color: Brand.text,
+    fontSize: 19,
+    fontWeight: '900',
+  },
+  emptyFeedText: {
+    color: Brand.muted,
+    fontSize: 14,
+    lineHeight: 21,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   storyContent: {
     gap: 14,
@@ -1123,18 +915,21 @@ const styles = StyleSheet.create({
   storyAvatarRingActive: {
     borderColor: Brand.primary,
   },
-  storyAvatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: Brand.secondary,
-  },
   storyUser: {
     width: '100%',
     color: Brand.text,
     fontSize: 12,
     fontWeight: '800',
     textAlign: 'center',
+  },
+  avatarFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Brand.primary,
+  },
+  avatarInitial: {
+    color: Brand.text,
+    fontWeight: '900',
   },
   bagPanel: {
     flex: 1,
@@ -1173,12 +968,8 @@ const styles = StyleSheet.create({
     backgroundColor: Brand.surface,
   },
   bagIdentityAvatar: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
     borderWidth: 2,
     borderColor: Brand.surface,
-    backgroundColor: Brand.surface,
   },
   bagIdentityUser: {
     flexShrink: 1,
@@ -1186,124 +977,28 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '900',
   },
-  modeToggle: {
-    width: 54,
-    height: 30,
-    justifyContent: 'center',
-    borderRadius: 999,
-    paddingHorizontal: 3,
-    backgroundColor: Brand.secondary,
-    borderWidth: 1,
-    borderColor: Brand.border,
-  },
-  modeToggleActive: {
-    backgroundColor: Brand.primary,
-    borderColor: Brand.primary,
-  },
-  toggleThumb: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: Brand.surface,
-  },
-  toggleThumbActive: {
-    alignSelf: 'flex-end',
-  },
-  bagModeToggle: {
-    backgroundColor: Brand.secondary,
-  },
-  history: {
-    flex: 1,
-    backgroundColor: Brand.secondary,
-  },
-  historyContent: {
-    paddingTop: 12,
-    paddingHorizontal: 10,
-    paddingBottom: 18,
-  },
-  historyGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    rowGap: 10,
-  },
-  historyCard: {
-    width: '30.8%',
-    minHeight: 178,
-    overflow: 'hidden',
-    borderRadius: 8,
-    backgroundColor: Brand.surface,
-    borderWidth: 1,
-    borderColor: Brand.border,
-  },
-  historyDate: {
-    paddingHorizontal: 10,
-    paddingTop: 10,
-    color: Brand.text,
-    fontSize: 15,
-    fontWeight: '900',
-  },
-  historyPreview: {
-    flex: 1,
-    marginTop: 6,
-    overflow: 'hidden',
-    backgroundColor: Brand.secondary,
-  },
-  historyPhoto: {
-    position: 'absolute',
-    overflow: 'visible',
-    backgroundColor: 'transparent',
-  },
   canvas: {
     flex: 1,
     overflow: 'hidden',
     backgroundColor: Brand.secondary,
   },
+  canvasCenter: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+  },
+  emptyBagText: {
+    color: Brand.muted,
+    fontSize: 15,
+    fontWeight: '800',
+    textAlign: 'center',
+    lineHeight: 22,
+  },
   photoCard: {
     position: 'absolute',
     overflow: 'visible',
     backgroundColor: 'transparent',
-  },
-  likeBubble: {
-    position: 'absolute',
-    zIndex: 20,
-    minWidth: 88,
-    height: 42,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingHorizontal: 13,
-    borderRadius: 21,
-    backgroundColor: Brand.surface,
-    borderWidth: 2,
-    borderColor: Brand.border,
-  },
-  likeHeart: {
-    color: Brand.text,
-    fontSize: 27,
-    lineHeight: 31,
-    fontWeight: '900',
-  },
-  likeHeartActive: {
-    color: '#EF4444',
-  },
-  likeCount: {
-    color: Brand.text,
-    fontSize: 19,
-    fontWeight: '900',
-    fontVariant: ['tabular-nums'],
-  },
-  likeBubbleTail: {
-    position: 'absolute',
-    bottom: -7,
-    width: 14,
-    height: 14,
-    borderRightWidth: 2,
-    borderBottomWidth: 2,
-    borderColor: Brand.border,
-    backgroundColor: Brand.surface,
-    transform: [{ rotate: '45deg' }],
   },
   photo: {
     width: '100%',

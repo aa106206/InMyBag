@@ -30,10 +30,14 @@ create table if not exists public.bag_items (
   x numeric,
   y numeric,
   rotation numeric,
+  object_label text,
+  location_name text,
   created_at timestamptz not null default now()
 );
 
 alter table public.bag_items add column if not exists storage_path text;
+alter table public.bag_items add column if not exists object_label text;
+alter table public.bag_items add column if not exists location_name text;
 
 alter table public.profiles enable row level security;
 alter table public.bag_stacks enable row level security;
@@ -338,6 +342,63 @@ $$;
 
 revoke execute on function public.respond_friend_request(uuid, boolean) from public, anon;
 grant execute on function public.respond_friend_request(uuid, boolean) to authenticated;
+
+-- 친구는 서로의 가방(스택/아이템/이미지)을 읽을 수 있다.
+-- friendships 테이블이 만들어진 뒤에 실행돼야 하므로 파일 뒷부분에서 기존 읽기 정책을 교체한다.
+drop policy if exists "Users can read their own bag stacks" on public.bag_stacks;
+drop policy if exists "Users and friends can read bag stacks" on public.bag_stacks;
+create policy "Users and friends can read bag stacks"
+  on public.bag_stacks
+  for select
+  using (
+    auth.uid() = user_id
+    or exists (
+      select 1
+      from public.friendships
+      where friendships.user_id = auth.uid()
+        and friendships.friend_id = bag_stacks.user_id
+    )
+  );
+
+drop policy if exists "Users can read items from their own bag stacks" on public.bag_items;
+drop policy if exists "Users and friends can read bag items" on public.bag_items;
+create policy "Users and friends can read bag items"
+  on public.bag_items
+  for select
+  using (
+    exists (
+      select 1
+      from public.bag_stacks
+      where bag_stacks.id = bag_items.bag_stack_id
+        and (
+          bag_stacks.user_id = auth.uid()
+          or exists (
+            select 1
+            from public.friendships
+            where friendships.user_id = auth.uid()
+              and friendships.friend_id = bag_stacks.user_id
+          )
+        )
+    )
+  );
+
+drop policy if exists "Users can read their own bag item images" on storage.objects;
+drop policy if exists "Users and friends can read bag item images" on storage.objects;
+create policy "Users and friends can read bag item images"
+  on storage.objects
+  for select
+  using (
+    bucket_id = 'bag-items'
+    and (
+      auth.uid()::text = split_part(name, '/', 1)
+      or exists (
+        select 1
+        from public.friendships
+        where friendships.user_id = auth.uid()
+          and friendships.friend_id::text = split_part(name, '/', 1)
+      )
+    )
+  );
 
 create or replace function public.handle_new_user()
 returns trigger
