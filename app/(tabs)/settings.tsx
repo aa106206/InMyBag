@@ -1,6 +1,5 @@
 import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
-import * as Linking from 'expo-linking';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -11,7 +10,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -35,7 +33,6 @@ const accountActions: SettingsAction[] = [
 ];
 
 const friendActions: SettingsAction[] = [
-  { id: 'invite', label: '친구 초대' },
   { id: 'friends', label: '친구 관리' },
 ];
 
@@ -210,30 +207,7 @@ export default function SettingsScreen() {
     }
   };
 
-  const shareInviteLink = async () => {
-    if (!user) {
-      return;
-    }
-
-    const inviteUrl = Linking.createURL('invite', { queryParams: { code: user.id } });
-
-    try {
-      await Share.share({
-        title: 'SnapBag 친구 초대',
-        message: `SnapBag에서 내 가방을 같이 구경해요!\n아래 링크를 누르면 나와 친구가 돼요.\n${inviteUrl}`,
-        url: inviteUrl,
-      });
-    } catch {
-      Alert.alert('공유 실패', '초대 메시지를 여는 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요.');
-    }
-  };
-
-  const handleFriendAction = async (action: SettingsAction) => {
-    if (action.id === 'invite') {
-      await shareInviteLink();
-      return;
-    }
-
+  const handleFriendAction = (action: SettingsAction) => {
     if (action.id === 'friends') {
       router.push('/friend-management');
     }

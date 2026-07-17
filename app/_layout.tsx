@@ -7,7 +7,6 @@ import { LoginScreen } from '@/components/login-screen';
 import { Brand } from '@/constants/theme';
 import { AuthProvider, useAuth } from '@/hooks/use-auth';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { useFriendInviteLink } from '@/hooks/use-friend-invite';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -16,7 +15,6 @@ export const unstable_settings = {
 function RootNavigator() {
   const colorScheme = useColorScheme();
   const { initializing, session, signIn, signUp } = useAuth();
-  useFriendInviteLink();
   const navigationTheme = colorScheme === 'dark' ? DarkTheme : DefaultTheme;
   const brandedTheme = {
     ...navigationTheme,

@@ -3,6 +3,8 @@ import { Stack } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -14,18 +16,24 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Brand } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
-import { fetchFriends, FriendProfile } from '@/services/friends';
+import {
+  fetchFriends,
+  fetchIncomingFriendRequests,
+  FriendProfile,
+  FriendRequest,
+  getFriendRequestErrorMessage,
+  respondFriendRequest,
+  sendFriendRequest,
+} from '@/services/friends';
 
-function FriendAvatar({ friend }: { friend: FriendProfile }) {
-  if (friend.avatarUrl) {
-    return <Image source={{ uri: friend.avatarUrl }} style={styles.friendAvatar} contentFit="cover" />;
+function AvatarCircle({ name, avatarUrl }: { name: string; avatarUrl: string | null }) {
+  if (avatarUrl) {
+    return <Image source={{ uri: avatarUrl }} style={styles.avatar} contentFit="cover" />;
   }
 
   return (
-    <View style={[styles.friendAvatar, styles.friendAvatarFallback]}>
-      <Text style={styles.friendAvatarInitial}>
-        {friend.username.slice(0, 1).toUpperCase()}
-      </Text>
+    <View style={[styles.avatar, styles.avatarFallback]}>
+      <Text style={styles.avatarInitial}>{name.slice(0, 1).toUpperCase()}</Text>
     </View>
   );
 }
@@ -34,23 +42,34 @@ export default function FriendManagementScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const userId = user?.id ?? null;
+
   const [friends, setFriends] = useState<FriendProfile[]>([]);
+  const [incomingRequests, setIncomingRequests] = useState<FriendRequest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [searchText, setSearchText] = useState('');
+  const [addTarget, setAddTarget] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const [respondingRequestId, setRespondingRequestId] = useState<string | null>(null);
 
-  const loadFriends = useCallback(async () => {
+  const loadAll = useCallback(async () => {
     if (!userId) {
       setFriends([]);
+      setIncomingRequests([]);
       return;
     }
 
     try {
       setLoadError(false);
-      setFriends(await fetchFriends(userId));
+      const [nextFriends, nextRequests] = await Promise.all([
+        fetchFriends(userId),
+        fetchIncomingFriendRequests(userId),
+      ]);
+      setFriends(nextFriends);
+      setIncomingRequests(nextRequests);
     } catch (error) {
-      console.warn('Failed to load friends', error);
+      console.warn('Failed to load friends data', error);
       setLoadError(true);
     }
   }, [userId]);
@@ -60,7 +79,7 @@ export default function FriendManagementScreen() {
 
     (async () => {
       setIsLoading(true);
-      await loadFriends();
+      await loadAll();
       if (!cancelled) {
         setIsLoading(false);
       }
@@ -69,13 +88,65 @@ export default function FriendManagementScreen() {
     return () => {
       cancelled = true;
     };
-  }, [loadFriends]);
+  }, [loadAll]);
 
-  const refreshFriends = useCallback(async () => {
+  const refresh = useCallback(async () => {
     setIsRefreshing(true);
-    await loadFriends();
+    await loadAll();
     setIsRefreshing(false);
-  }, [loadFriends]);
+  }, [loadAll]);
+
+  const submitFriendRequest = useCallback(async () => {
+    const target = addTarget.trim();
+    if (!target || isSending) {
+      return;
+    }
+
+    setIsSending(true);
+    try {
+      const result = await sendFriendRequest(target);
+
+      if (result.result === 'accepted_existing') {
+        Alert.alert(
+          '친구 추가 완료',
+          `${result.friendName}님도 나에게 친구 요청을 보낸 상태여서 바로 친구가 되었어요!`,
+        );
+      } else {
+        Alert.alert('요청 전송 완료', `${result.friendName}님에게 친구 요청을 보냈어요.`);
+      }
+
+      setAddTarget('');
+      await loadAll();
+    } catch (error) {
+      Alert.alert('친구 요청 실패', getFriendRequestErrorMessage(error));
+    } finally {
+      setIsSending(false);
+    }
+  }, [addTarget, isSending, loadAll]);
+
+  const respondToRequest = useCallback(
+    async (request: FriendRequest, accept: boolean) => {
+      if (respondingRequestId) {
+        return;
+      }
+
+      setRespondingRequestId(request.id);
+      try {
+        const result = await respondFriendRequest(request.id, accept);
+
+        if (result.result === 'accepted') {
+          Alert.alert('친구 추가 완료', `${result.friendName}님과 친구가 되었어요!`);
+        }
+
+        await loadAll();
+      } catch (error) {
+        Alert.alert('요청 처리 실패', getFriendRequestErrorMessage(error));
+      } finally {
+        setRespondingRequestId(null);
+      }
+    },
+    [loadAll, respondingRequestId],
+  );
 
   const normalizedSearch = searchText.trim().toLowerCase();
   const filteredFriends = useMemo(
@@ -94,17 +165,6 @@ export default function FriendManagementScreen() {
     <>
       <Stack.Screen options={{ title: '친구 관리' }} />
       <View style={styles.screen}>
-        <View style={styles.searchWrap}>
-          <TextInput
-            value={searchText}
-            onChangeText={setSearchText}
-            placeholder="친구 검색"
-            placeholderTextColor={Brand.muted}
-            autoCapitalize="none"
-            autoCorrect={false}
-            style={styles.searchInput}
-          />
-        </View>
         {isLoading ? (
           <View style={styles.loadingWrap}>
             <ActivityIndicator color={Brand.primary} size="large" />
@@ -114,16 +174,101 @@ export default function FriendManagementScreen() {
             style={styles.list}
             contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 24 }]}
             showsVerticalScrollIndicator={false}
-            refreshControl={
-              <RefreshControl refreshing={isRefreshing} onRefresh={refreshFriends} />
-            }
+            keyboardShouldPersistTaps="handled"
+            refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={refresh} />}
           >
+            <Text style={styles.sectionTitle}>친구 추가</Text>
+            <View style={styles.addRow}>
+              <TextInput
+                value={addTarget}
+                onChangeText={setAddTarget}
+                placeholder="친구 아이디(이메일) 입력"
+                placeholderTextColor={Brand.muted}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="email-address"
+                editable={!isSending}
+                style={styles.addInput}
+                onSubmitEditing={submitFriendRequest}
+                returnKeyType="send"
+              />
+              <Pressable
+                style={({ pressed }) => [
+                  styles.addButton,
+                  pressed ? styles.addButtonPressed : undefined,
+                  isSending || !addTarget.trim() ? styles.addButtonDisabled : undefined,
+                ]}
+                onPress={submitFriendRequest}
+                disabled={isSending || !addTarget.trim()}
+              >
+                {isSending ? (
+                  <ActivityIndicator color={Brand.text} size="small" />
+                ) : (
+                  <Text style={styles.addButtonText}>요청</Text>
+                )}
+              </Pressable>
+            </View>
+
+            {incomingRequests.length > 0 ? (
+              <>
+                <Text style={styles.sectionTitle}>받은 친구 요청</Text>
+                {incomingRequests.map((request) => (
+                  <View key={request.id} style={styles.requestRow}>
+                    <AvatarCircle
+                      name={request.requesterName}
+                      avatarUrl={request.requesterAvatarUrl}
+                    />
+                    <View style={styles.rowInfo}>
+                      <Text style={styles.rowTitle}>@{request.requesterName.split('@')[0]}</Text>
+                      {request.requesterEmail ? (
+                        <Text style={styles.rowSubtitle}>{request.requesterEmail}</Text>
+                      ) : null}
+                    </View>
+                    <View style={styles.requestActions}>
+                      <Pressable
+                        style={[
+                          styles.requestButton,
+                          styles.acceptButton,
+                          respondingRequestId === request.id ? styles.requestButtonDisabled : undefined,
+                        ]}
+                        onPress={() => respondToRequest(request, true)}
+                        disabled={respondingRequestId !== null}
+                      >
+                        <Text style={styles.acceptButtonText}>수락</Text>
+                      </Pressable>
+                      <Pressable
+                        style={[
+                          styles.requestButton,
+                          styles.declineButton,
+                          respondingRequestId === request.id ? styles.requestButtonDisabled : undefined,
+                        ]}
+                        onPress={() => respondToRequest(request, false)}
+                        disabled={respondingRequestId !== null}
+                      >
+                        <Text style={styles.declineButtonText}>거절</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ))}
+              </>
+            ) : null}
+
+            <Text style={styles.sectionTitle}>내 친구 {friends.length > 0 ? `(${friends.length})` : ''}</Text>
+            <TextInput
+              value={searchText}
+              onChangeText={setSearchText}
+              placeholder="친구 검색"
+              placeholderTextColor={Brand.muted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              style={styles.searchInput}
+            />
             {filteredFriends.map((friend) => (
               <View key={friend.id} style={styles.friendRow}>
-                <FriendAvatar friend={friend} />
-                <View style={styles.friendInfo}>
-                  <Text style={styles.friendUser}>@{friend.username.split('@')[0]}</Text>
-                  {friend.email ? <Text style={styles.friendName}>{friend.email}</Text> : null}
+                <AvatarCircle name={friend.username} avatarUrl={friend.avatarUrl} />
+                <View style={styles.rowInfo}>
+                  <Text style={styles.rowTitle}>@{friend.username.split('@')[0]}</Text>
+                  {friend.email ? <Text style={styles.rowSubtitle}>{friend.email}</Text> : null}
                 </View>
               </View>
             ))}
@@ -135,7 +280,7 @@ export default function FriendManagementScreen() {
               <Text style={styles.emptyText}>
                 {normalizedSearch
                   ? '검색 결과가 없습니다.'
-                  : '아직 친구가 없어요.\n설정에서 친구 초대 링크를 공유해 보세요!'}
+                  : '아직 친구가 없어요.\n위에서 친구 아이디로 요청을 보내보세요!'}
               </Text>
             ) : null}
           </ScrollView>
@@ -150,11 +295,59 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Brand.secondary,
   },
-  searchWrap: {
+  loadingWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  list: {
+    flex: 1,
+  },
+  listContent: {
+    gap: 10,
     paddingHorizontal: 18,
     paddingTop: 12,
-    paddingBottom: 12,
-    backgroundColor: Brand.secondary,
+  },
+  sectionTitle: {
+    marginTop: 8,
+    color: Brand.text,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  addRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  addInput: {
+    flex: 1,
+    height: 50,
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    color: Brand.text,
+    fontSize: 15,
+    fontWeight: '800',
+    backgroundColor: Brand.surface,
+    borderWidth: 1,
+    borderColor: Brand.border,
+  },
+  addButton: {
+    minWidth: 74,
+    height: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+    backgroundColor: Brand.primary,
+  },
+  addButtonPressed: {
+    opacity: 0.8,
+  },
+  addButtonDisabled: {
+    opacity: 0.55,
+  },
+  addButtonText: {
+    color: Brand.text,
+    fontSize: 15,
+    fontWeight: '900',
   },
   searchInput: {
     height: 50,
@@ -167,18 +360,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Brand.border,
   },
-  loadingWrap: {
-    flex: 1,
+  requestRow: {
+    minHeight: 72,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-  },
-  list: {
-    flex: 1,
-  },
-  listContent: {
-    gap: 10,
-    paddingHorizontal: 18,
-    paddingTop: 4,
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: Brand.surface,
+    borderWidth: 1,
+    borderColor: Brand.primary,
   },
   friendRow: {
     minHeight: 72,
@@ -191,38 +383,68 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Brand.border,
   },
-  friendAvatar: {
+  avatar: {
     width: 48,
     height: 48,
     borderRadius: 24,
     backgroundColor: Brand.secondary,
   },
-  friendAvatarFallback: {
+  avatarFallback: {
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: Brand.primary,
   },
-  friendAvatarInitial: {
+  avatarInitial: {
     color: Brand.text,
     fontSize: 20,
     fontWeight: '900',
   },
-  friendInfo: {
+  rowInfo: {
     flex: 1,
     gap: 2,
   },
-  friendUser: {
+  rowTitle: {
     color: Brand.text,
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '900',
   },
-  friendName: {
+  rowSubtitle: {
     color: Brand.muted,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '800',
   },
+  requestActions: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  requestButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  requestButtonDisabled: {
+    opacity: 0.55,
+  },
+  acceptButton: {
+    backgroundColor: Brand.primary,
+  },
+  acceptButtonText: {
+    color: Brand.text,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  declineButton: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: Brand.border,
+  },
+  declineButtonText: {
+    color: Brand.muted,
+    fontSize: 13,
+    fontWeight: '900',
+  },
   emptyText: {
-    paddingTop: 28,
+    paddingTop: 20,
     color: Brand.muted,
     fontSize: 15,
     fontWeight: '800',
