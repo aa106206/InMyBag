@@ -177,51 +177,167 @@ create policy "Users can delete their own friendships"
   for delete
   using (auth.uid() = user_id);
 
--- 초대 링크 수락: 초대한 사람(inviter)과 현재 로그인한 사용자를 양방향으로 친구로 만든다.
--- friendships에는 insert 정책이 없으므로 친구 관계는 이 함수를 통해서만 생성된다.
-create or replace function public.accept_friend_invite(inviter uuid)
+-- 이전 링크 초대 방식은 제거됐다.
+drop function if exists public.accept_friend_invite(uuid);
+
+create table if not exists public.friend_requests (
+  id uuid primary key default gen_random_uuid(),
+  requester_id uuid not null references public.profiles(id) on delete cascade,
+  recipient_id uuid not null references public.profiles(id) on delete cascade,
+  status text not null default 'pending' check (status in ('pending', 'accepted', 'declined')),
+  created_at timestamptz not null default now(),
+  responded_at timestamptz,
+  check (requester_id <> recipient_id)
+);
+
+-- 같은 상대에게 보류 중인 요청은 하나만 존재할 수 있다.
+create unique index if not exists friend_requests_pending_unique
+  on public.friend_requests (requester_id, recipient_id)
+  where status = 'pending';
+
+alter table public.friend_requests enable row level security;
+
+drop policy if exists "Users can read their own friend requests" on public.friend_requests;
+create policy "Users can read their own friend requests"
+  on public.friend_requests
+  for select
+  using (auth.uid() = requester_id or auth.uid() = recipient_id);
+
+-- 친구 요청 전송: 아이디(username 또는 email)로 상대를 찾아 요청을 만든다.
+-- 상대가 나에게 먼저 보낸 대기 중 요청이 있으면 그 요청을 수락 처리하고 바로 친구가 된다.
+-- friend_requests에는 insert/update 정책이 없으므로 요청 생성과 응답은 RPC로만 가능하다.
+create or replace function public.send_friend_request(target text)
 returns json
 language plpgsql
 security definer set search_path = public
 as $$
 declare
-  invitee uuid := auth.uid();
-  inviter_profile record;
-  inserted_count integer;
+  sender uuid := auth.uid();
+  target_profile record;
+  reverse_request_id uuid;
 begin
-  if invitee is null then
+  if sender is null then
     raise exception 'AUTH_REQUIRED';
   end if;
 
-  if inviter = invitee then
-    raise exception 'SELF_INVITE';
-  end if;
-
   select id, username, email
-    into inviter_profile
+    into target_profile
     from public.profiles
-   where id = inviter;
+   where username = target or email = target
+   limit 1;
 
   if not found then
-    raise exception 'INVITER_NOT_FOUND';
+    raise exception 'USER_NOT_FOUND';
   end if;
 
-  insert into public.friendships (user_id, friend_id)
-  values (invitee, inviter), (inviter, invitee)
-  on conflict do nothing;
+  if target_profile.id = sender then
+    raise exception 'SELF_REQUEST';
+  end if;
 
-  get diagnostics inserted_count = row_count;
+  if exists (
+    select 1 from public.friendships
+    where user_id = sender and friend_id = target_profile.id
+  ) then
+    raise exception 'ALREADY_FRIENDS';
+  end if;
+
+  if exists (
+    select 1 from public.friend_requests
+    where requester_id = sender
+      and recipient_id = target_profile.id
+      and status = 'pending'
+  ) then
+    raise exception 'ALREADY_REQUESTED';
+  end if;
+
+  select id
+    into reverse_request_id
+    from public.friend_requests
+   where requester_id = target_profile.id
+     and recipient_id = sender
+     and status = 'pending'
+   limit 1;
+
+  if reverse_request_id is not null then
+    update public.friend_requests
+       set status = 'accepted', responded_at = now()
+     where id = reverse_request_id;
+
+    insert into public.friendships (user_id, friend_id)
+    values (sender, target_profile.id), (target_profile.id, sender)
+    on conflict do nothing;
+
+    return json_build_object(
+      'result', 'accepted_existing',
+      'friend_name', coalesce(target_profile.username, target_profile.email)
+    );
+  end if;
+
+  insert into public.friend_requests (requester_id, recipient_id)
+  values (sender, target_profile.id);
 
   return json_build_object(
-    'friend_id', inviter_profile.id,
-    'friend_name', coalesce(inviter_profile.username, inviter_profile.email),
-    'already_friends', inserted_count = 0
+    'result', 'requested',
+    'friend_name', coalesce(target_profile.username, target_profile.email)
   );
 end;
 $$;
 
-revoke execute on function public.accept_friend_invite(uuid) from public, anon;
-grant execute on function public.accept_friend_invite(uuid) to authenticated;
+revoke execute on function public.send_friend_request(text) from public, anon;
+grant execute on function public.send_friend_request(text) to authenticated;
+
+-- 받은 친구 요청에 응답한다. 수락하면 양방향 친구 관계가 만들어진다.
+create or replace function public.respond_friend_request(request_id uuid, accept boolean)
+returns json
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  responder uuid := auth.uid();
+  req record;
+  requester_profile record;
+begin
+  if responder is null then
+    raise exception 'AUTH_REQUIRED';
+  end if;
+
+  select *
+    into req
+    from public.friend_requests
+   where id = request_id
+     and recipient_id = responder
+     and status = 'pending'
+   for update;
+
+  if not found then
+    raise exception 'REQUEST_NOT_FOUND';
+  end if;
+
+  update public.friend_requests
+     set status = case when accept then 'accepted' else 'declined' end,
+         responded_at = now()
+   where id = req.id;
+
+  if accept then
+    insert into public.friendships (user_id, friend_id)
+    values (responder, req.requester_id), (req.requester_id, responder)
+    on conflict do nothing;
+  end if;
+
+  select username, email
+    into requester_profile
+    from public.profiles
+   where id = req.requester_id;
+
+  return json_build_object(
+    'result', case when accept then 'accepted' else 'declined' end,
+    'friend_name', coalesce(requester_profile.username, requester_profile.email)
+  );
+end;
+$$;
+
+revoke execute on function public.respond_friend_request(uuid, boolean) from public, anon;
+grant execute on function public.respond_friend_request(uuid, boolean) to authenticated;
 
 create or replace function public.handle_new_user()
 returns trigger
