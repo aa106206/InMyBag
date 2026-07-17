@@ -31,13 +31,19 @@ create table if not exists public.bag_items (
   y numeric,
   rotation numeric,
   object_label text,
+  note text,
   location_name text,
+  location_latitude double precision,
+  location_longitude double precision,
   created_at timestamptz not null default now()
 );
 
 alter table public.bag_items add column if not exists storage_path text;
 alter table public.bag_items add column if not exists object_label text;
+alter table public.bag_items add column if not exists note text;
 alter table public.bag_items add column if not exists location_name text;
+alter table public.bag_items add column if not exists location_latitude double precision;
+alter table public.bag_items add column if not exists location_longitude double precision;
 
 alter table public.profiles enable row level security;
 alter table public.bag_stacks enable row level security;

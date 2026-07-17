@@ -376,6 +376,12 @@ function PhotoInfoModal({
               <View style={styles.infoImageStage}>
                 <Image source={{ uri: selectedPhoto.item.imageUrl }} style={styles.infoImage} />
               </View>
+              {selectedPhoto.item.note ? (
+                <View style={styles.infoNoteSection}>
+                  <Text style={styles.infoNoteTitle}>기록</Text>
+                  <Text style={styles.infoNoteText}>{selectedPhoto.item.note}</Text>
+                </View>
+              ) : null}
             </>
           ) : null}
         </View>
@@ -854,6 +860,25 @@ const styles = StyleSheet.create({
     width: '86%',
     height: 220,
     resizeMode: 'contain',
+  },
+  infoNoteSection: {
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderTopWidth: 1,
+    borderTopColor: Brand.border,
+    backgroundColor: Brand.surface,
+  },
+  infoNoteTitle: {
+    color: Brand.muted,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  infoNoteText: {
+    color: Brand.text,
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '700',
   },
   feedHeader: {
     backgroundColor: Brand.surface,
