@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  DeviceEventEmitter,
   Image,
   KeyboardAvoidingView,
   LayoutChangeEvent,
@@ -22,6 +23,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { PhotoLocationMap } from "@/components/photo-location-map";
+import { BAG_STACK_TAB_RESELECT_EVENT } from "@/constants/tab-events";
 import { Brand } from "@/constants/theme";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -1233,6 +1235,7 @@ export default function BagStackScreen() {
   const engineRef = useRef(Engine.create({ gravity: { x: 0, y: 0, scale: 0.002 } }));
   const wallsRef = useRef<Matter.Body[]>([]);
   const worldSizeRef = useRef<WorldSize>({ width: 0, height: 0 });
+  const savedItemsLoadIdRef = useRef(0);
 
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
   const [canvasSize, setCanvasSize] = useState<WorldSize>({ width: 0, height: 0 });
@@ -1387,7 +1390,7 @@ export default function BagStackScreen() {
     [],
   );
 
-  useEffect(() => {
+  const reloadSavedBagItems = useCallback(async () => {
     if (canvasSize.width <= 0 || canvasSize.height <= 0) {
       return;
     }
@@ -1397,48 +1400,61 @@ export default function BagStackScreen() {
       return;
     }
 
-    let cancelled = false;
+    const loadId = savedItemsLoadIdRef.current + 1;
+    savedItemsLoadIdRef.current = loadId;
     clearPhotos();
     setIsLoadingSavedItems(true);
 
-    loadCurrentBagItems(user)
-      .then((items) => {
-        if (cancelled) {
-          return;
-        }
+    try {
+      const items = await loadCurrentBagItems(user);
 
-        items.forEach((item) => {
-          spawnPhoto(
-            item.imageUrl,
-            { width: item.width, height: item.height },
-            {
-              id: item.id,
-              dbId: item.id,
-              storagePath: item.storagePath,
-              createdAt: item.createdAt,
-              objectLabel: item.objectLabel,
-              note: item.note,
-              locationName: item.locationName,
-              locationLatitude: item.locationLatitude,
-              locationLongitude: item.locationLongitude,
-            },
-          );
-        });
-      })
-      .catch((error) => {
-        console.warn("Saved bag items load failed.", error);
-        Alert.alert("가방 불러오기 실패", getBagItemPersistenceErrorMessage(error));
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsLoadingSavedItems(false);
-        }
+      if (savedItemsLoadIdRef.current !== loadId) {
+        return;
+      }
+
+      items.forEach((item) => {
+        spawnPhoto(
+          item.imageUrl,
+          { width: item.width, height: item.height },
+          {
+            id: item.id,
+            dbId: item.id,
+            storagePath: item.storagePath,
+            createdAt: item.createdAt,
+            objectLabel: item.objectLabel,
+            note: item.note,
+            locationName: item.locationName,
+            locationLatitude: item.locationLatitude,
+            locationLongitude: item.locationLongitude,
+          },
+        );
       });
-
-    return () => {
-      cancelled = true;
-    };
+    } catch (error) {
+      console.warn("Saved bag items load failed.", error);
+    } finally {
+      if (savedItemsLoadIdRef.current === loadId) {
+        setIsLoadingSavedItems(false);
+      }
+    }
   }, [canvasSize.height, canvasSize.width, clearPhotos, spawnPhoto, user]);
+
+  useEffect(() => {
+    void reloadSavedBagItems();
+    return () => {
+      savedItemsLoadIdRef.current += 1;
+    };
+  }, [reloadSavedBagItems]);
+
+  useEffect(() => {
+    const subscription = DeviceEventEmitter.addListener(
+      BAG_STACK_TAB_RESELECT_EVENT,
+      () => {
+        void reloadSavedBagItems();
+      },
+    );
+
+    return () => subscription.remove();
+  }, [reloadSavedBagItems]);
 
   const deletePhoto = useCallback((photoToDelete: PhotoItem) => {
     World.remove(engineRef.current.world, photoToDelete.body);

@@ -656,6 +656,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const userId = user?.id ?? null;
+  const bagItemsLoadIdRef = useRef(0);
 
   const [friends, setFriends] = useState<FriendProfile[]>([]);
   const [isLoadingFriends, setIsLoadingFriends] = useState(true);
@@ -708,38 +709,54 @@ export default function HomeScreen() {
     }
   }, [friends, selectedFriendId]);
 
-  // 선택된 친구의 가방 아이템을 불러온다.
-  useEffect(() => {
-    if (!selectedFriendId) {
+  const reloadFriendBagItems = useCallback(async (friendId: string | null) => {
+    if (!friendId) {
       setBagItems([]);
       return;
     }
 
-    let cancelled = false;
+    const loadId = bagItemsLoadIdRef.current + 1;
+    bagItemsLoadIdRef.current = loadId;
     setIsLoadingItems(true);
 
-    loadFriendBagItems(selectedFriendId)
-      .then((items) => {
-        if (!cancelled) {
-          setBagItems(items);
-        }
-      })
-      .catch((error) => {
-        console.warn('Failed to load friend bag items', error);
-        if (!cancelled) {
-          setBagItems([]);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsLoadingItems(false);
-        }
-      });
+    try {
+      const items = await loadFriendBagItems(friendId);
 
+      if (bagItemsLoadIdRef.current === loadId) {
+        setBagItems(items);
+      }
+    } catch (error) {
+      console.warn('Failed to load friend bag items', error);
+
+      if (bagItemsLoadIdRef.current === loadId) {
+        setBagItems([]);
+      }
+    } finally {
+      if (bagItemsLoadIdRef.current === loadId) {
+        setIsLoadingItems(false);
+      }
+    }
+  }, []);
+
+  // 선택된 친구의 가방 아이템을 불러온다.
+  useEffect(() => {
+    void reloadFriendBagItems(selectedFriendId);
     return () => {
-      cancelled = true;
+      bagItemsLoadIdRef.current += 1;
     };
-  }, [selectedFriendId]);
+  }, [reloadFriendBagItems, selectedFriendId]);
+
+  const handleSelectFriend = useCallback(
+    (friendId: string) => {
+      if (friendId === selectedFriendId) {
+        void reloadFriendBagItems(friendId);
+        return;
+      }
+
+      setSelectedFriendId(friendId);
+    },
+    [reloadFriendBagItems, selectedFriendId],
+  );
 
   const selectedFriend = friends.find((friend) => friend.id === selectedFriendId) ?? null;
 
@@ -755,7 +772,7 @@ export default function HomeScreen() {
           <FriendStoryRail
             friends={friends}
             selectedFriendId={selectedFriendId ?? ''}
-            onSelectFriend={setSelectedFriendId}
+            onSelectFriend={handleSelectFriend}
           />
         ) : null}
       </View>
