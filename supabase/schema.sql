@@ -58,6 +58,7 @@ drop policy if exists "Users can update their own bag stacks" on public.bag_stac
 drop policy if exists "Users can delete their own bag stacks" on public.bag_stacks;
 drop policy if exists "Users can read items from their own bag stacks" on public.bag_items;
 drop policy if exists "Users can insert items into their own bag stacks" on public.bag_items;
+drop policy if exists "Users can update items in their own bag stacks" on public.bag_items;
 drop policy if exists "Users can delete items from their own bag stacks" on public.bag_items;
 
 create policy "Profiles are readable by everyone"
@@ -112,6 +113,26 @@ create policy "Users can read items from their own bag stacks"
 create policy "Users can insert items into their own bag stacks"
   on public.bag_items
   for insert
+  with check (
+    exists (
+      select 1
+      from public.bag_stacks
+      where bag_stacks.id = bag_items.bag_stack_id
+        and bag_stacks.user_id = auth.uid()
+    )
+  );
+
+create policy "Users can update items in their own bag stacks"
+  on public.bag_items
+  for update
+  using (
+    exists (
+      select 1
+      from public.bag_stacks
+      where bag_stacks.id = bag_items.bag_stack_id
+        and bag_stacks.user_id = auth.uid()
+    )
+  )
   with check (
     exists (
       select 1
