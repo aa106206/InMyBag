@@ -2,7 +2,7 @@ import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import { Accelerometer } from "expo-sensors";
 import Matter, { Bodies, Body, Engine, World } from "matter-js";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -627,6 +627,7 @@ function SegmentPreviewModal({
   onRetune,
   onAccept,
   isSaving,
+  children,
 }: {
   photo: PendingPhoto | null;
   promptBox: Sam2PromptBox | null;
@@ -642,6 +643,7 @@ function SegmentPreviewModal({
   onRetune: () => void;
   onAccept: () => void;
   isSaving: boolean;
+  children?: ReactNode;
 }) {
   const [previewSize, setPreviewSize] = useState<ObjectSize>({ width: 0, height: 0 });
   const dragStartRef = useRef({ x: 0, y: 0 });
@@ -862,6 +864,7 @@ function SegmentPreviewModal({
           </View>
         </View>
       </View>
+      {children}
     </Modal>
   );
 }
@@ -1704,17 +1707,18 @@ export default function BagStackScreen() {
         onRetune={retuneSegmentBox}
         onAccept={openPhotoNoteComposer}
         isSaving={isSavingBagItem}
-      />
-      <PhotoNoteModal
-        visible={isWritingPhotoNote}
-        photoUri={segmentedPreview?.uri}
-        objectLabel={selectedObjectLabel}
-        note={photoNote}
-        isSaving={isSavingBagItem}
-        onChangeNote={setPhotoNote}
-        onBack={() => setIsWritingPhotoNote(false)}
-        onSave={acceptSegmentedPreview}
-      />
+      >
+        <PhotoNoteModal
+          visible={isWritingPhotoNote}
+          photoUri={segmentedPreview?.uri}
+          objectLabel={selectedObjectLabel}
+          note={photoNote}
+          isSaving={isSavingBagItem}
+          onChangeNote={setPhotoNote}
+          onBack={() => setIsWritingPhotoNote(false)}
+          onSave={acceptSegmentedPreview}
+        />
+      </SegmentPreviewModal>
 
       <View style={[styles.topBar, { paddingTop: insets.top + 12 }]}>
         <Image source={require("@/assets/images/SnapBag.png")} style={styles.logoImage} />
