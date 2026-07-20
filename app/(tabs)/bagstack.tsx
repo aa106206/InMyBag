@@ -32,6 +32,7 @@ import {
   loadCurrentBagItems,
   saveBagItem,
 } from "@/services/bag-items";
+import { BagView, fetchBagViews } from "@/services/bag-views";
 import {
   detectObjectsWithDino,
   DinoDetectionBox,
@@ -1092,6 +1093,76 @@ function BagPhotoInfoModal({
   );
 }
 
+function formatBagViewTime(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  const hours = `${date.getHours()}`.padStart(2, "0");
+  const minutes = `${date.getMinutes()}`.padStart(2, "0");
+
+  return `${date.getFullYear()}.${month}.${day} ${hours}:${minutes}`;
+}
+
+function BagViewsModal({
+  visible,
+  views,
+  isLoading,
+  onClose,
+}: {
+  visible: boolean;
+  views: BagView[];
+  isLoading: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.viewsOverlay}>
+        <View style={styles.viewsCard}>
+          <View style={styles.viewsHeader}>
+            <View style={styles.viewsTitleBlock}>
+              <Text style={styles.viewsTitle}>내 가방을 조회한 사람</Text>
+              <Text style={styles.viewsSubtitle}>피드에서 내 가방을 열어본 친구들이에요.</Text>
+            </View>
+            <Pressable style={styles.viewsCloseButton} onPress={onClose} hitSlop={10}>
+              <Text style={styles.viewsCloseText}>×</Text>
+            </Pressable>
+          </View>
+
+          {isLoading ? (
+            <View style={styles.viewsCenter}>
+              <ActivityIndicator color={Brand.primary} />
+            </View>
+          ) : views.length === 0 ? (
+            <View style={styles.viewsCenter}>
+              <Text style={styles.viewsEmptyText}>아직 내 가방을 조회한 사람이 없어요.</Text>
+            </View>
+          ) : (
+            <ScrollView
+              style={styles.viewsScroll}
+              contentContainerStyle={styles.viewsScrollContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {views.map((view) => (
+                <View key={view.viewerId} style={styles.viewsRow}>
+                  <Text style={styles.viewsUser} numberOfLines={1} ellipsizeMode="tail">
+                    @{view.viewerName.split("@")[0]}
+                  </Text>
+                  <Text style={styles.viewsTime}>{formatBagViewTime(view.viewedAt)}</Text>
+                </View>
+              ))}
+            </ScrollView>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function PhysicsPhoto({
   photo,
   frame,
@@ -1256,6 +1327,9 @@ export default function BagStackScreen() {
   const [segmentedPreview, setSegmentedPreview] = useState<Sam2SegmentResult | null>(null);
   const [isWritingPhotoNote, setIsWritingPhotoNote] = useState(false);
   const [photoNote, setPhotoNote] = useState("");
+  const [isBagViewsOpen, setIsBagViewsOpen] = useState(false);
+  const [bagViews, setBagViews] = useState<BagView[]>([]);
+  const [isLoadingBagViews, setIsLoadingBagViews] = useState(false);
 
   const syncWalls = useCallback((width: number, height: number) => {
     if (width <= 0 || height <= 0) {
@@ -1682,6 +1756,30 @@ export default function BagStackScreen() {
     }
   }, [detectionBoxes, pendingPhoto, photoNote, segmentedPreview, selectedDetectionId, spawnPhoto, user]);
 
+  const openBagViews = useCallback(async () => {
+    if (!user) {
+      Alert.alert("로그인 필요", "조회 기록을 보려면 다시 로그인해 주세요.");
+      return;
+    }
+
+    setIsBagViewsOpen(true);
+    setIsLoadingBagViews(true);
+
+    try {
+      const views = await fetchBagViews(user.id);
+      setBagViews(views);
+    } catch (error) {
+      console.warn("Bag views load failed.", error);
+      Alert.alert("조회 기록 불러오기 실패", "조회 기록을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setIsLoadingBagViews(false);
+    }
+  }, [user]);
+
+  const closeBagViews = useCallback(() => {
+    setIsBagViewsOpen(false);
+  }, []);
+
   const selectedObjectLabel =
     detectionBoxes.find((box) => box.id === selectedDetectionId)?.label ?? null;
 
@@ -1719,11 +1817,24 @@ export default function BagStackScreen() {
           onSave={acceptSegmentedPreview}
         />
       </SegmentPreviewModal>
+      <BagViewsModal
+        visible={isBagViewsOpen}
+        views={bagViews}
+        isLoading={isLoadingBagViews}
+        onClose={closeBagViews}
+      />
 
       <View style={[styles.topBar, { paddingTop: insets.top + 12 }]}>
         <Image source={require("@/assets/images/SnapBag.png")} style={styles.logoImage} />
         <View style={styles.topCopy}>
-          <Text style={styles.topTitle}>{showHistory ? "가방 기록" : "내 가방"}</Text>
+          <View style={styles.titleRow}>
+            <Text style={styles.topTitle}>{showHistory ? "가방 기록" : "내 가방"}</Text>
+            {!showHistory ? (
+              <Pressable style={styles.viewsBadgeButton} onPress={openBagViews} hitSlop={8}>
+                <Text style={styles.viewsBadgeText}>조회</Text>
+              </Pressable>
+            ) : null}
+          </View>
         </View>
         <Pressable
           style={[styles.modeToggle, showHistory ? styles.modeToggleActive : undefined]}
@@ -1949,10 +2060,122 @@ const styles = StyleSheet.create({
   topCopy: {
     flex: 1,
   },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   topTitle: {
     color: Brand.text,
     fontSize: 22,
     fontWeight: "900",
+  },
+  viewsBadgeButton: {
+    paddingHorizontal: 11,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: Brand.primary,
+  },
+  viewsBadgeText: {
+    color: Brand.text,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  viewsOverlay: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 22,
+    backgroundColor: "rgba(17, 24, 39, 0.42)",
+  },
+  viewsCard: {
+    width: "100%",
+    maxWidth: 360,
+    maxHeight: "66%",
+    overflow: "hidden",
+    borderRadius: 8,
+    backgroundColor: Brand.surface,
+    borderWidth: 1,
+    borderColor: Brand.border,
+  },
+  viewsHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: Brand.border,
+  },
+  viewsTitleBlock: {
+    flex: 1,
+    gap: 3,
+  },
+  viewsTitle: {
+    color: Brand.text,
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  viewsSubtitle: {
+    color: Brand.muted,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  viewsCloseButton: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 14,
+    backgroundColor: Brand.secondary,
+  },
+  viewsCloseText: {
+    color: Brand.text,
+    fontSize: 22,
+    lineHeight: 24,
+    fontWeight: "900",
+  },
+  viewsCenter: {
+    minHeight: 140,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+  viewsEmptyText: {
+    color: Brand.muted,
+    fontSize: 14,
+    fontWeight: "800",
+    textAlign: "center",
+    lineHeight: 21,
+  },
+  viewsScroll: {
+    maxHeight: "100%",
+  },
+  viewsScrollContent: {
+    paddingVertical: 6,
+  },
+  viewsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Brand.border,
+  },
+  viewsUser: {
+    flex: 1,
+    color: Brand.text,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  viewsTime: {
+    color: Brand.muted,
+    fontSize: 12,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
   },
   modeToggle: {
     width: 54,

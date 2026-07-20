@@ -438,3 +438,52 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
+
+-- 내 가방을 누가 조회했는지 기록한다. 같은 사람이 여러 번 봐도 행은 하나이고
+-- viewed_at만 최신으로 갱신된다. 조회 기록은 가방 주인만 읽을 수 있고,
+-- 쓰기는 record_bag_view RPC로만 이뤄진다.
+create table if not exists public.bag_views (
+  owner_id uuid not null references public.profiles(id) on delete cascade,
+  viewer_id uuid not null references public.profiles(id) on delete cascade,
+  viewed_at timestamptz not null default now(),
+  primary key (owner_id, viewer_id),
+  check (owner_id <> viewer_id)
+);
+
+create index if not exists bag_views_owner_viewed_at_idx
+  on public.bag_views (owner_id, viewed_at desc);
+
+alter table public.bag_views enable row level security;
+
+drop policy if exists "Owners can read their bag views" on public.bag_views;
+create policy "Owners can read their bag views"
+  on public.bag_views
+  for select
+  to authenticated
+  using (auth.uid() = owner_id);
+
+create or replace function public.record_bag_view(owner uuid)
+returns void
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  viewer uuid := auth.uid();
+begin
+  if viewer is null then
+    raise exception 'AUTH_REQUIRED';
+  end if;
+
+  if owner is null or owner = viewer then
+    return;
+  end if;
+
+  insert into public.bag_views (owner_id, viewer_id, viewed_at)
+  values (owner, viewer, now())
+  on conflict (owner_id, viewer_id)
+  do update set viewed_at = now();
+end;
+$$;
+
+revoke execute on function public.record_bag_view(uuid) from public, anon;
+grant execute on function public.record_bag_view(uuid) to authenticated;
