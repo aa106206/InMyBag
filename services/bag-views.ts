@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { resolveProfileAvatarUrl } from "./profile";
 
 export type BagView = {
   viewerId: string;
@@ -46,7 +47,7 @@ export async function fetchBagViews(ownerId: string): Promise<BagView[]> {
 
   const profileById = new Map((profiles ?? []).map((profile) => [profile.id as string, profile]));
 
-  return views.map((row) => {
+  return Promise.all(views.map(async (row) => {
     const profile = profileById.get(row.viewer_id as string);
 
     return {
@@ -54,8 +55,8 @@ export async function fetchBagViews(ownerId: string): Promise<BagView[]> {
       viewerName:
         (profile?.username as string | null) ?? (profile?.email as string | null) ?? "알 수 없음",
       viewerEmail: (profile?.email as string | null) ?? null,
-      viewerAvatarUrl: (profile?.avatar_url as string | null) ?? null,
+      viewerAvatarUrl: await resolveProfileAvatarUrl((profile?.avatar_url as string | null) ?? null),
       viewedAt: row.viewed_at as string,
     };
-  });
+  }));
 }

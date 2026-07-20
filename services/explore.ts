@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { resolveProfileAvatarUrl } from "./profile";
 
 export type ExploreOwner = {
   id: string;
@@ -71,12 +72,12 @@ export async function fetchExploreBagOwners(excludeUserId: string): Promise<Expl
     throw profilesError;
   }
 
-  const owners = (profiles ?? []).map((profile) => ({
+  const owners = await Promise.all((profiles ?? []).map(async (profile) => ({
     id: profile.id as string,
     username:
       (profile.username as string | null) ?? (profile.email as string | null) ?? "알 수 없음",
-    avatarUrl: profile.avatar_url as string | null,
-  }));
+    avatarUrl: await resolveProfileAvatarUrl(profile.avatar_url as string | null),
+  })));
 
   return shuffle(owners);
 }

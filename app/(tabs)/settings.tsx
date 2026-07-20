@@ -1,7 +1,7 @@
 import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -19,6 +19,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Brand } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
+import {
+  getProfileAvatarErrorMessage,
+  loadCurrentProfile,
+  updateProfileAvatar,
+} from '@/services/profile';
 
 type SettingsAction = {
   id: string;
@@ -106,6 +111,7 @@ export default function SettingsScreen() {
   const { signOut, updateEmail, updatePassword, user } = useAuth();
   const displayName = user?.email ?? 'SnapBag User';
   const [profileImageUri, setProfileImageUri] = useState(defaultProfileImage);
+  const [isProfileImageSaving, setIsProfileImageSaving] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
   const [accountEditMode, setAccountEditMode] = useState<AccountEditMode | null>(null);
   const [accountEmail, setAccountEmail] = useState(user?.email ?? '');
@@ -114,6 +120,31 @@ export default function SettingsScreen() {
   const [accountMessage, setAccountMessage] = useState('');
   const [accountError, setAccountError] = useState('');
   const [isAccountSubmitting, setIsAccountSubmitting] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    if (!user) {
+      setProfileImageUri(defaultProfileImage);
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    loadCurrentProfile(user)
+      .then((profile) => {
+        if (isMounted) {
+          setProfileImageUri(profile.avatarUrl || defaultProfileImage);
+        }
+      })
+      .catch((error) => {
+        console.warn('Profile load failed.', error);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user]);
 
   const closeAccountModal = () => {
     if (isAccountSubmitting) {
@@ -213,9 +244,29 @@ export default function SettingsScreen() {
     }
   };
 
-  const updateProfileImage = (uri?: string) => {
-    if (uri) {
-      setProfileImageUri(uri);
+  const updateProfileImage = async (uri?: string) => {
+    if (!uri || isProfileImageSaving) {
+      return;
+    }
+
+    if (!user) {
+      Alert.alert('로그인 필요', '프로필 사진을 바꾸려면 먼저 로그인해 주세요.');
+      return;
+    }
+
+    const previousProfileImageUri = profileImageUri;
+    setProfileImageUri(uri);
+    setIsProfileImageSaving(true);
+
+    try {
+      const avatarUrl = await updateProfileAvatar(user, uri);
+      setProfileImageUri(avatarUrl);
+      Alert.alert('프로필 사진 변경', '프로필 사진이 저장됐어요.');
+    } catch (error) {
+      setProfileImageUri(previousProfileImageUri);
+      Alert.alert('변경 실패', getProfileAvatarErrorMessage(error));
+    } finally {
+      setIsProfileImageSaving(false);
     }
   };
 
@@ -234,7 +285,7 @@ export default function SettingsScreen() {
     });
 
     if (!result.canceled) {
-      updateProfileImage(result.assets[0]?.uri);
+      await updateProfileImage(result.assets[0]?.uri);
     }
   };
 
@@ -253,11 +304,15 @@ export default function SettingsScreen() {
     });
 
     if (!result.canceled) {
-      updateProfileImage(result.assets[0]?.uri);
+      await updateProfileImage(result.assets[0]?.uri);
     }
   };
 
   const showProfileImageOptions = () => {
+    if (isProfileImageSaving) {
+      return;
+    }
+
     Alert.alert('프로필 사진 변경', undefined, [
       { text: '사진 촬영', onPress: takeProfilePhoto },
       { text: '갤러리에서 선택', onPress: pickProfilePhoto },
@@ -422,11 +477,18 @@ export default function SettingsScreen() {
               style={({ pressed }) => [
                 styles.profileAddButton,
                 pressed ? styles.profileAddButtonPressed : undefined,
+                isProfileImageSaving ? styles.profileAddButtonDisabled : undefined,
               ]}
               onPress={showProfileImageOptions}
+              disabled={isProfileImageSaving}
             >
               <Text style={styles.profileAddText}>+</Text>
             </Pressable>
+            {isProfileImageSaving ? (
+              <View style={styles.profileImageSaving}>
+                <ActivityIndicator color={Brand.surface} />
+              </View>
+            ) : null}
           </View>
           <Text style={styles.profileName}>{displayName}</Text>
         </View>
@@ -670,11 +732,21 @@ const styles = StyleSheet.create({
     opacity: 0.72,
     transform: [{ scale: 0.94 }],
   },
+  profileAddButtonDisabled: {
+    opacity: 0.58,
+  },
   profileAddText: {
     color: Brand.text,
     fontSize: 24,
     lineHeight: 26,
     fontWeight: '900',
+  },
+  profileImageSaving: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 52,
+    backgroundColor: 'rgba(17, 24, 39, 0.36)',
   },
   profileName: {
     color: Brand.text,
