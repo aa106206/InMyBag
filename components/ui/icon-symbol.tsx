@@ -21,6 +21,7 @@ const MAPPING = {
   'house.fill': 'home',
   'paperplane.fill': 'send',
   'square.stack.3d.up.fill': 'layers',
+  'trash.fill': 'delete',
   'chevron.left.forwardslash.chevron.right': 'code',
   'chevron.right': 'chevron-right',
 } as IconMapping;
