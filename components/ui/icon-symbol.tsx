@@ -20,6 +20,8 @@ const MAPPING = {
   'gearshape.fill': 'settings',
   'house.fill': 'home',
   'paperplane.fill': 'send',
+  'pencil': 'edit',
+  'checkmark': 'check',
   'square.stack.3d.up.fill': 'layers',
   'trash.fill': 'delete',
   'chevron.left.forwardslash.chevron.right': 'code',

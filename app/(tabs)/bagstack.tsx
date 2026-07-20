@@ -32,6 +32,7 @@ import {
   getBagItemPersistenceErrorMessage,
   loadCurrentBagItems,
   saveBagItem,
+  updateBagItem,
 } from "@/services/bag-items";
 import {
   detectObjectsWithDino,
@@ -1031,15 +1032,49 @@ function BagPhotoInfoModal({
   photo,
   onDelete,
   onClose,
+  onUpdate,
 }: {
   photo: PhotoItem | null;
   onDelete: () => void;
   onClose: () => void;
+  onUpdate: (updates: { objectLabel: string | null; note: string | null }) => Promise<void>;
 }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [draftObjectLabel, setDraftObjectLabel] = useState("");
+  const [draftNote, setDraftNote] = useState("");
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
   const locationName = photo?.locationName || DEFAULT_PHOTO_LOCATION_NAME;
   const hasPhotoLocation =
     typeof photo?.locationLatitude === "number"
     && typeof photo?.locationLongitude === "number";
+
+  useEffect(() => {
+    setIsEditing(false);
+    setDraftObjectLabel(photo?.objectLabel ?? "");
+    setDraftNote(photo?.note ?? "");
+    setIsSavingEdit(false);
+  }, [photo?.id, photo?.objectLabel, photo?.note]);
+
+  const saveEdit = useCallback(async () => {
+    if (!photo || isSavingEdit) {
+      return;
+    }
+
+    setIsSavingEdit(true);
+
+    try {
+      await onUpdate({
+        objectLabel: draftObjectLabel.trim() || null,
+        note: draftNote.trim() || null,
+      });
+      setIsEditing(false);
+    } catch (error) {
+      console.warn("Bag item update failed.", error);
+      Alert.alert("수정 실패", "사진 정보를 수정하지 못했어요. 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setIsSavingEdit(false);
+    }
+  }, [draftNote, draftObjectLabel, isSavingEdit, onUpdate, photo]);
 
   return (
     <Modal visible={!!photo} transparent animationType="fade" onRequestClose={onClose}>
@@ -1056,23 +1091,72 @@ function BagPhotoInfoModal({
             >
               <View style={styles.infoHeader}>
                 <View style={styles.infoTitleBlock}>
-                  <Text style={styles.infoObjectName}>{photo.objectLabel || "가방 물건"}</Text>
+                  {isEditing ? (
+                    <TextInput
+                      style={[styles.infoObjectName, styles.infoTitleInput]}
+                      value={draftObjectLabel}
+                      onChangeText={setDraftObjectLabel}
+                      placeholder="물건 이름"
+                      placeholderTextColor={Brand.muted}
+                      maxLength={40}
+                      editable={!isSavingEdit}
+                    />
+                  ) : (
+                    <Text style={styles.infoObjectName}>{photo.objectLabel || "가방 물건"}</Text>
+                  )}
                   <Text style={styles.infoCapturedAt}>{formatCapturedAt(photo.createdAt)}</Text>
                 </View>
-                <Pressable
-                  style={styles.infoDeleteButton}
-                  onPress={onDelete}
-                  hitSlop={10}
-                  accessibilityRole="button"
-                  accessibilityLabel="사진 삭제"
-                >
-                  <IconSymbol name="trash.fill" size={24} color="#E5484D" />
-                </Pressable>
+                <View style={styles.infoActionRow}>
+                  <Pressable
+                    style={[styles.infoActionButton, styles.infoEditButton]}
+                    onPress={isEditing ? saveEdit : () => setIsEditing(true)}
+                    disabled={isSavingEdit}
+                    hitSlop={10}
+                    accessibilityRole="button"
+                    accessibilityLabel={isEditing ? "수정 저장" : "사진 정보 수정"}
+                  >
+                    <IconSymbol
+                      name={isEditing ? "checkmark" : "pencil"}
+                      size={23}
+                      color={Brand.text}
+                    />
+                  </Pressable>
+                  <Pressable
+                    style={[styles.infoActionButton, styles.infoDeleteButton]}
+                    onPress={onDelete}
+                    disabled={isSavingEdit}
+                    hitSlop={10}
+                    accessibilityRole="button"
+                    accessibilityLabel="사진 삭제"
+                  >
+                    <IconSymbol name="trash.fill" size={24} color="#E5484D" />
+                  </Pressable>
+                </View>
               </View>
               <View style={styles.infoImageStage}>
                 <Image source={{ uri: photo.uri }} style={styles.infoImage} resizeMode="contain" />
               </View>
-              {photo.note ? (
+              {isEditing ? (
+                <View style={styles.infoNoteSection}>
+                  <Text style={styles.infoNoteTitle}>기록</Text>
+                  <View style={styles.infoNoteInputWrap}>
+                    <TextInput
+                      style={[styles.infoNoteText, styles.infoNoteInput]}
+                      value={draftNote}
+                      onChangeText={setDraftNote}
+                      placeholder="이 물건에 대한 기록을 적어보세요."
+                      placeholderTextColor={Brand.muted}
+                      multiline
+                      maxLength={MAX_PHOTO_NOTE_LENGTH}
+                      textAlignVertical="top"
+                      editable={!isSavingEdit}
+                    />
+                    <Text style={styles.infoNoteCounter}>
+                      {draftNote.length}/{MAX_PHOTO_NOTE_LENGTH}
+                    </Text>
+                  </View>
+                </View>
+              ) : photo.note ? (
                 <View style={styles.infoNoteSection}>
                   <Text style={styles.infoNoteTitle}>기록</Text>
                   <Text style={styles.infoNoteText}>{photo.note}</Text>
@@ -1500,6 +1584,29 @@ export default function BagStackScreen() {
     ]);
   }, [deletePhoto, selectedPhoto]);
 
+  const updateSelectedPhoto = useCallback(async (updates: { objectLabel: string | null; note: string | null }) => {
+    if (!selectedPhoto) {
+      return;
+    }
+
+    const photoToUpdate = selectedPhoto;
+
+    if (photoToUpdate.dbId) {
+      await updateBagItem(photoToUpdate.dbId, updates);
+    }
+
+    const updatedPhoto = {
+      ...photoToUpdate,
+      objectLabel: updates.objectLabel,
+      note: updates.note,
+    };
+
+    setPhotos((current) =>
+      current.map((photo) => (photo.id === photoToUpdate.id ? { ...photo, ...updatedPhoto } : photo)),
+    );
+    setSelectedPhoto(updatedPhoto);
+  }, [selectedPhoto]);
+
   const pickFromCamera = useCallback(async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== "granted") {
@@ -1711,6 +1818,7 @@ export default function BagStackScreen() {
         photo={selectedPhoto}
         onClose={() => setSelectedPhoto(null)}
         onDelete={deleteSelectedPhoto}
+        onUpdate={updateSelectedPhoto}
       />
       <SegmentPreviewModal
         photo={pendingPhoto}
@@ -1879,21 +1987,42 @@ const styles = StyleSheet.create({
     fontSize: 21,
     fontWeight: "900",
   },
+  infoTitleInput: {
+    minHeight: 42,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 14,
+    backgroundColor: Brand.surface,
+    borderWidth: 1,
+    borderColor: Brand.border,
+  },
   infoCapturedAt: {
     color: Brand.muted,
     fontSize: 13,
     fontWeight: "800",
   },
-  infoDeleteButton: {
+  infoActionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginRight: 28,
+  },
+  infoActionButton: {
     width: 42,
     height: 42,
     borderRadius: 21,
     alignItems: "center",
     justifyContent: "center",
+  },
+  infoEditButton: {
+    backgroundColor: Brand.secondary,
+    borderWidth: 1,
+    borderColor: Brand.border,
+  },
+  infoDeleteButton: {
     backgroundColor: "#FFF0F0",
     borderWidth: 1,
     borderColor: "rgba(229, 72, 77, 0.22)",
-    marginRight: 28,
   },
   infoImageStage: {
     minHeight: 280,
@@ -1924,6 +2053,25 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     fontWeight: "700",
+  },
+  infoNoteInputWrap: {
+    minHeight: 120,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Brand.border,
+    backgroundColor: Brand.surface,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  infoNoteInput: {
+    minHeight: 82,
+    padding: 0,
+  },
+  infoNoteCounter: {
+    alignSelf: "flex-end",
+    color: Brand.muted,
+    fontSize: 12,
+    fontWeight: "800",
   },
   infoMapSection: {
     paddingHorizontal: 16,

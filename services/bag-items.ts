@@ -501,3 +501,35 @@ export async function deleteBagItem(itemId: string, storagePath?: string | null)
     }
   }
 }
+
+export async function updateBagItem(
+  itemId: string,
+  updates: {
+    objectLabel?: string | null;
+    note?: string | null;
+  },
+) {
+  const { data, error } = await supabase
+    .from('bag_items')
+    .update({
+      object_label: updates.objectLabel?.trim() || null,
+      note: updates.note?.trim() || null,
+    })
+    .eq('id', itemId)
+    .select('id,object_label,note')
+    .single<{
+      id: string;
+      object_label: string | null;
+      note: string | null;
+    }>();
+
+  if (error) {
+    throw error;
+  }
+
+  return {
+    id: data.id,
+    objectLabel: data.object_label,
+    note: data.note,
+  };
+}
