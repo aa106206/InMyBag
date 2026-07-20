@@ -141,10 +141,12 @@ function clampPhotoPosition(
   }
 
   const inset = photoSize / 2;
+  const safeX = Number.isFinite(position.x) ? position.x : worldSize.width / 2;
+  const safeY = Number.isFinite(position.y) ? position.y : worldSize.height / 2;
 
   return {
-    x: Math.max(inset, Math.min(worldSize.width - inset, position.x)),
-    y: Math.max(inset, Math.min(worldSize.height - inset, position.y)),
+    x: Math.max(inset, Math.min(worldSize.width - inset, safeX)),
+    y: Math.max(inset, Math.min(worldSize.height - inset, safeY)),
   };
 }
 
@@ -179,6 +181,10 @@ const STUCK_DRAG_TIMEOUT_MS = 2000;
 const MAX_THROW_SPEED = 16;
 
 function limitThrowSpeed(value: number) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
   return Math.max(-MAX_THROW_SPEED, Math.min(MAX_THROW_SPEED, value));
 }
 
