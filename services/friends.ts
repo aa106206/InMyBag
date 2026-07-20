@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { resolveProfileAvatarUrl } from "./profile";
 
 export type FriendProfile = {
   id: string;
@@ -56,15 +57,15 @@ export async function fetchFriends(userId: string): Promise<FriendProfile[]> {
     throw profilesError;
   }
 
-  return (profiles ?? [])
-    .map((profile) => ({
+  const friends = await Promise.all((profiles ?? []).map(async (profile) => ({
       id: profile.id as string,
       username: (profile.username as string | null) ?? (profile.email as string | null) ?? "알 수 없음",
       email: profile.email as string | null,
-      avatarUrl: profile.avatar_url as string | null,
+      avatarUrl: await resolveProfileAvatarUrl(profile.avatar_url as string | null),
       friendedAt: friendedAtById.get(profile.id as string) ?? "",
-    }))
-    .sort((a, b) => (a.friendedAt < b.friendedAt ? 1 : -1));
+    })));
+
+  return friends.sort((a, b) => (a.friendedAt < b.friendedAt ? 1 : -1));
 }
 
 export async function fetchIncomingFriendRequests(userId: string): Promise<FriendRequest[]> {
@@ -95,7 +96,7 @@ export async function fetchIncomingFriendRequests(userId: string): Promise<Frien
 
   const profileById = new Map((profiles ?? []).map((profile) => [profile.id as string, profile]));
 
-  return requests.map((row) => {
+  return Promise.all(requests.map(async (row) => {
     const profile = profileById.get(row.requester_id as string);
 
     return {
@@ -104,10 +105,10 @@ export async function fetchIncomingFriendRequests(userId: string): Promise<Frien
       requesterName:
         (profile?.username as string | null) ?? (profile?.email as string | null) ?? "알 수 없음",
       requesterEmail: (profile?.email as string | null) ?? null,
-      requesterAvatarUrl: (profile?.avatar_url as string | null) ?? null,
+      requesterAvatarUrl: await resolveProfileAvatarUrl((profile?.avatar_url as string | null) ?? null),
       createdAt: row.created_at as string,
     };
-  });
+  }));
 }
 
 export async function sendFriendRequest(target: string): Promise<SendFriendRequestResult> {
