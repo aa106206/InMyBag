@@ -55,7 +55,14 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'Feed',
-          tabBarIcon: ({ color }) => <IconSymbol size={FEED_TAB_ICON_SIZE} name="house.fill" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={FEED_TAB_ICON_SIZE} name="person.fill" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="explore"
+        options={{
+          title: '둘러보기',
+          tabBarIcon: ({ color }) => <IconSymbol size={TAB_ICON_SIZE} name="safari.fill" color={color} />,
         }}
       />
       <Tabs.Screen
