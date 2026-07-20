@@ -508,3 +508,26 @@ $$;
 
 revoke execute on function public.record_bag_view(uuid) from public, anon;
 grant execute on function public.record_bag_view(uuid) to authenticated;
+
+-- 둘러보기(Explore): 로그인한 사용자는 친구가 아니어도 모든 가방을 "읽기"만 할 수 있다.
+-- (쓰기 권한은 그대로 본인만.) 기존 친구 전용 정책과 OR로 합쳐져 전체 읽기가 허용된다.
+drop policy if exists "Signed-in users can read all bag stacks" on public.bag_stacks;
+create policy "Signed-in users can read all bag stacks"
+  on public.bag_stacks
+  for select
+  to authenticated
+  using (true);
+
+drop policy if exists "Signed-in users can read all bag items" on public.bag_items;
+create policy "Signed-in users can read all bag items"
+  on public.bag_items
+  for select
+  to authenticated
+  using (true);
+
+drop policy if exists "Signed-in users can read all bag item images" on storage.objects;
+create policy "Signed-in users can read all bag item images"
+  on storage.objects
+  for select
+  to authenticated
+  using (bucket_id = 'bag-items');
