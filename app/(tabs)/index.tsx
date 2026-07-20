@@ -815,7 +815,7 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Brand.surface,
+    backgroundColor: Brand.secondary,
   },
   infoOverlay: {
     flex: 1,
@@ -830,9 +830,14 @@ const styles = StyleSheet.create({
     maxHeight: '66%',
     overflow: 'hidden',
     borderRadius: 8,
-    backgroundColor: Brand.surface,
+    backgroundColor: Brand.surfaceElevated,
     borderWidth: 1,
-    borderColor: Brand.border,
+    borderColor: Brand.borderSoft,
+    shadowColor: Brand.text,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.14,
+    shadowRadius: 22,
+    elevation: 14,
   },
   infoCloseButton: {
     position: 'absolute',
@@ -861,7 +866,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: Brand.border,
+    borderBottomColor: Brand.borderSoft,
   },
   infoTitleBlock: {
     flex: 1,
@@ -883,7 +888,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
-    backgroundColor: Brand.secondary,
+    backgroundColor: Brand.surfaceWarm,
   },
   infoImage: {
     width: '86%',
@@ -912,6 +917,7 @@ const styles = StyleSheet.create({
   feedHeader: {
     backgroundColor: Brand.surface,
     borderBottomWidth: 0,
+    paddingBottom: 2,
   },
   feedLogoWrap: {
     height: 52,
@@ -942,10 +948,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   storyContent: {
-    gap: 14,
-    paddingHorizontal: 14,
+    gap: 16,
+    paddingHorizontal: 16,
     paddingTop: 8,
-    paddingBottom: 10,
+    paddingBottom: 12,
   },
   storyItem: {
     width: 66,
@@ -963,11 +969,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 30,
     borderWidth: 2,
-    borderColor: Brand.border,
-    backgroundColor: Brand.surface,
+    borderColor: Brand.borderSoft,
+    backgroundColor: Brand.surfaceElevated,
   },
   storyAvatarRingActive: {
-    borderColor: Brand.primary,
+    borderColor: Brand.lavenderDeep,
+    shadowColor: Brand.lavenderDeep,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    elevation: 6,
   },
   storyUser: {
     width: '100%',
@@ -988,29 +999,34 @@ const styles = StyleSheet.create({
   bagPanel: {
     flex: 1,
     marginHorizontal: 14,
-    marginTop: 8,
-    marginBottom: 12,
+    marginTop: 10,
+    marginBottom: 14,
     overflow: 'hidden',
     borderRadius: 8,
-    borderWidth: 2,
-    borderColor: Brand.border,
-    backgroundColor: Brand.surface,
+    borderWidth: 1,
+    borderColor: Brand.borderSoft,
+    backgroundColor: Brand.surfaceElevated,
+    shadowColor: Brand.text,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.08,
+    shadowRadius: 18,
+    elevation: 7,
   },
   bagPanelHeader: {
-    minHeight: 50,
+    minHeight: 46,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
     paddingHorizontal: 14,
-    paddingVertical: 6,
+    paddingVertical: 5,
     backgroundColor: Brand.surface,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.92)',
+    borderBottomColor: Brand.borderSoft,
   },
   bagPanelBody: {
     flex: 1,
-    backgroundColor: Brand.secondary,
+    backgroundColor: Brand.surfaceWarm,
   },
   bagIdentity: {
     flex: 1,
@@ -1019,7 +1035,7 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingRight: 10,
     borderRadius: 999,
-    backgroundColor: Brand.surface,
+    backgroundColor: Brand.surfaceElevated,
   },
   bagIdentityAvatar: {
     borderWidth: 2,
@@ -1034,7 +1050,7 @@ const styles = StyleSheet.create({
   canvas: {
     flex: 1,
     overflow: 'hidden',
-    backgroundColor: Brand.secondary,
+    backgroundColor: Brand.surfaceWarm,
   },
   canvasCenter: {
     ...StyleSheet.absoluteFillObject,

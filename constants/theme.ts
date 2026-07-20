@@ -10,11 +10,20 @@ export const Brand = {
   primarySoft: '#F8C8DC',
   secondary: '#FFF3E6',
   lavender: '#C7B8EA',
+  lavenderDeep: '#8F82D8',
   text: '#111827',
+  inkSoft: '#253047',
   muted: '#6B7280',
+  mutedSoft: '#9CA3AF',
   surface: '#FFFFFF',
   surfaceWarm: '#FFF3E6',
+  surfaceElevated: '#FFFCF8',
+  surfaceTint: '#FFF8EF',
   border: '#E6D7DD',
+  borderSoft: '#F2E9ED',
+  success: '#166534',
+  danger: '#D92D20',
+  shadow: 'rgba(17, 24, 39, 0.10)',
 };
 
 const tintColorLight = Brand.text;
