@@ -23,6 +23,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { PhotoLocationMap } from "@/components/photo-location-map";
+import { IconSymbol } from "@/components/ui/icon-symbol";
 import { BAG_STACK_TAB_RESELECT_EVENT } from "@/constants/tab-events";
 import { Brand } from "@/constants/theme";
 import { useAuth } from "@/hooks/use-auth";
@@ -1055,9 +1056,14 @@ function BagPhotoInfoModal({
                   <Text style={styles.infoObjectName}>{photo.objectLabel || "가방 물건"}</Text>
                   <Text style={styles.infoCapturedAt}>{formatCapturedAt(photo.createdAt)}</Text>
                 </View>
-                <Pressable style={styles.infoDeleteButton} onPress={onDelete}>
-                  <Text style={styles.infoDeleteIcon}>×</Text>
-                  <Text style={styles.infoDeleteText}>삭제</Text>
+                <Pressable
+                  style={styles.infoDeleteButton}
+                  onPress={onDelete}
+                  hitSlop={10}
+                  accessibilityRole="button"
+                  accessibilityLabel="사진 삭제"
+                >
+                  <IconSymbol name="trash.fill" size={24} color="#E5484D" />
                 </Pressable>
               </View>
               <View style={styles.infoImageStage}>
@@ -1473,8 +1479,22 @@ export default function BagStackScreen() {
       return;
     }
 
-    deletePhoto(selectedPhoto);
-    setSelectedPhoto(null);
+    const photoToDelete = selectedPhoto;
+
+    Alert.alert("삭제하시겠습니까?", "이 사진을 내 가방에서 삭제할까요?", [
+      {
+        text: "아니요",
+        style: "cancel",
+      },
+      {
+        text: "예",
+        style: "destructive",
+        onPress: () => {
+          deletePhoto(photoToDelete);
+          setSelectedPhoto(null);
+        },
+      },
+    ]);
   }, [deletePhoto, selectedPhoto]);
 
   const pickFromCamera = useCallback(async () => {
@@ -1861,23 +1881,15 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   infoDeleteButton: {
-    minWidth: 76,
-    flexDirection: "row",
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: "center",
-    justifyContent: "flex-end",
-    gap: 7,
+    justifyContent: "center",
+    backgroundColor: "#FFF0F0",
+    borderWidth: 1,
+    borderColor: "rgba(229, 72, 77, 0.22)",
     marginRight: 28,
-  },
-  infoDeleteIcon: {
-    color: "#E5484D",
-    fontSize: 31,
-    lineHeight: 35,
-    fontWeight: "900",
-  },
-  infoDeleteText: {
-    color: "#E5484D",
-    fontSize: 17,
-    fontWeight: "900",
   },
   infoImageStage: {
     minHeight: 280,
