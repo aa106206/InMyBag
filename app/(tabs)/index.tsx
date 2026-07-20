@@ -20,6 +20,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Brand } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { loadFriendBagItems, SavedBagItem } from '@/services/bag-items';
+import { recordBagView } from '@/services/bag-views';
 import { fetchFriends, FriendProfile } from '@/services/friends';
 
 const WALL_THICKNESS = 70;
@@ -724,6 +725,11 @@ export default function HomeScreen() {
 
       if (bagItemsLoadIdRef.current === loadId) {
         setBagItems(items);
+
+        // 피드에서 이 친구 가방을 본 것으로 조회 기록을 남긴다(실패해도 무시).
+        recordBagView(friendId).catch((viewError) => {
+          console.warn('Failed to record bag view', viewError);
+        });
       }
     } catch (error) {
       console.warn('Failed to load friend bag items', error);
