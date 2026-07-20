@@ -740,7 +740,7 @@ function PhotoNoteModal({
               value={note}
               onChangeText={onChangeNote}
               placeholder="오늘 이 물건과 함께한 순간을 적어보세요."
-              placeholderTextColor="rgba(255,255,255,0.42)"
+              placeholderTextColor={Brand.muted}
               multiline
               maxLength={MAX_PHOTO_NOTE_LENGTH}
               autoFocus
@@ -755,22 +755,22 @@ function PhotoNoteModal({
 
         <View style={styles.noteComposerControls}>
           <Pressable
-            style={[styles.previewButton, styles.previewSecondaryButton]}
+            style={[styles.previewButton, styles.noteSecondaryButton]}
             onPress={onBack}
             disabled={isSaving}
           >
-            <Text style={styles.previewSecondaryText}>이전</Text>
+            <Text style={styles.noteSecondaryText}>이전</Text>
           </Pressable>
           <Pressable
             style={[
               styles.previewButton,
-              styles.previewPrimaryButton,
+              styles.notePrimaryButton,
               isSaving && styles.disabledButton,
             ]}
             onPress={onSave}
             disabled={isSaving}
           >
-            <Text style={styles.previewPrimaryText}>
+            <Text style={styles.notePrimaryText}>
               {isSaving ? "저장 중..." : "가방에 추가"}
             </Text>
           </Pressable>
@@ -899,9 +899,6 @@ function BagPhotoInfoModal({
     <Modal visible={!!photo} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.infoOverlay}>
         <View style={styles.infoCard}>
-          <Pressable style={styles.infoCloseButton} onPress={onClose} hitSlop={10}>
-            <Text style={styles.infoCloseText}>×</Text>
-          </Pressable>
           {photo ? (
             <ScrollView
               style={styles.infoScroll}
@@ -936,7 +933,7 @@ function BagPhotoInfoModal({
                   >
                     <IconSymbol
                       name={isEditing ? "checkmark" : "pencil"}
-                      size={23}
+                      size={24}
                       color={Brand.text}
                     />
                   </Pressable>
@@ -948,7 +945,17 @@ function BagPhotoInfoModal({
                     accessibilityRole="button"
                     accessibilityLabel="사진 삭제"
                   >
-                    <IconSymbol name="trash.fill" size={24} color="#E5484D" />
+                    <IconSymbol name="trash.fill" size={25} color={Brand.text} />
+                  </Pressable>
+                  <Pressable
+                    style={[styles.infoActionButton, styles.infoCloseInlineButton]}
+                    onPress={onClose}
+                    disabled={isSavingEdit}
+                    hitSlop={10}
+                    accessibilityRole="button"
+                    accessibilityLabel="사진 정보 닫기"
+                  >
+                    <Text style={styles.infoCloseText}>×</Text>
                   </Pressable>
                 </View>
               </View>
@@ -957,7 +964,6 @@ function BagPhotoInfoModal({
               </View>
               {isEditing ? (
                 <View style={styles.infoNoteSection}>
-                  <Text style={styles.infoNoteTitle}>기록</Text>
                   <View style={styles.infoNoteInputWrap}>
                     <TextInput
                       style={[styles.infoNoteText, styles.infoNoteInput]}
@@ -975,12 +981,21 @@ function BagPhotoInfoModal({
                     </Text>
                   </View>
                 </View>
-              ) : photo.note ? (
+              ) : (
                 <View style={styles.infoNoteSection}>
-                  <Text style={styles.infoNoteTitle}>기록</Text>
-                  <Text style={styles.infoNoteText}>{photo.note}</Text>
+                  <View style={styles.infoNoteDisplayWrap}>
+                    <Text
+                      style={[
+                        styles.infoNoteText,
+                        styles.infoNoteDisplayText,
+                        !photo.note ? styles.infoEmptyText : null,
+                      ]}
+                    >
+                      {photo.note || "아직 기록이 없어요."}
+                    </Text>
+                  </View>
                 </View>
-              ) : null}
+              )}
               <View style={styles.infoMapSection}>
                 <Text style={styles.infoMapTitle}>찍은 위치</Text>
                 <Text style={styles.infoLocationName}>{locationName}</Text>
@@ -2130,141 +2145,158 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 22,
-    backgroundColor: "rgba(17, 24, 39, 0.42)",
+    paddingHorizontal: 20,
+    backgroundColor: "rgba(17, 24, 39, 0.30)",
   },
   infoCard: {
-    width: "100%",
-    maxWidth: 360,
-    maxHeight: "66%",
+    width: "88%",
+    maxWidth: 372,
+    maxHeight: "80%",
     overflow: "hidden",
     borderRadius: 8,
-    backgroundColor: Brand.surface,
+    backgroundColor: "#FFFDF3",
     borderWidth: 1,
-    borderColor: Brand.border,
-  },
-  infoCloseButton: {
-    position: "absolute",
-    top: 8,
-    right: 8,
-    zIndex: 20,
-    width: 28,
-    height: 28,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 14,
-    backgroundColor: "rgba(255, 255, 255, 0.84)",
+    borderColor: "rgba(230, 215, 221, 0.72)",
+    shadowColor: Brand.text,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+    elevation: 10,
   },
   infoCloseText: {
     color: Brand.text,
-    fontSize: 24,
-    lineHeight: 26,
-    fontWeight: "900",
+    fontSize: 34,
+    lineHeight: 34,
+    fontWeight: "500",
   },
   infoScroll: {
     maxHeight: "100%",
   },
   infoScrollContent: {
-    paddingBottom: 14,
+    paddingBottom: 18,
   },
   infoHeader: {
-    minHeight: 76,
+    minHeight: 82,
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "space-between",
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: Brand.border,
+    gap: 10,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 10,
+    backgroundColor: "#FFFDF3",
   },
   infoTitleBlock: {
     flex: 1,
-    gap: 3,
+    gap: 4,
+    paddingRight: 6,
   },
   infoObjectName: {
     color: Brand.text,
-    fontSize: 21,
-    fontWeight: "900",
+    fontSize: 24,
+    lineHeight: 29,
+    fontWeight: "800",
   },
   infoTitleInput: {
-    minHeight: 42,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 14,
+    minHeight: 40,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
     backgroundColor: Brand.surface,
     borderWidth: 1,
-    borderColor: Brand.border,
+    borderColor: Brand.borderSoft,
   },
   infoCapturedAt: {
     color: Brand.muted,
-    fontSize: 13,
-    fontWeight: "800",
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: "500",
   },
   infoActionRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    marginRight: 28,
+    gap: 11,
   },
   infoActionButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     alignItems: "center",
     justifyContent: "center",
   },
   infoEditButton: {
-    backgroundColor: Brand.secondary,
-    borderWidth: 1,
-    borderColor: Brand.border,
+    backgroundColor: "transparent",
   },
   infoDeleteButton: {
-    backgroundColor: "#FFF0F0",
-    borderWidth: 1,
-    borderColor: "rgba(229, 72, 77, 0.22)",
+    backgroundColor: "transparent",
+  },
+  infoCloseInlineButton: {
+    backgroundColor: "transparent",
   },
   infoImageStage: {
-    minHeight: 280,
+    height: 172,
+    marginHorizontal: 18,
     alignItems: "center",
     justifyContent: "center",
-    padding: 24,
-    backgroundColor: Brand.secondary,
+    overflow: "hidden",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(17, 24, 39, 0.14)",
+    backgroundColor: Brand.surface,
   },
   infoImage: {
-    width: "86%",
-    height: 220,
+    width: "100%",
+    height: "100%",
   },
   infoNoteSection: {
-    gap: 6,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderTopWidth: 1,
-    borderTopColor: Brand.border,
-    backgroundColor: Brand.surface,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 6,
+    backgroundColor: "#FFFDF3",
   },
   infoNoteTitle: {
     color: Brand.muted,
-    fontSize: 13,
-    fontWeight: "900",
-  },
-  infoNoteText: {
-    color: Brand.text,
-    fontSize: 15,
+    fontSize: 17,
     lineHeight: 22,
     fontWeight: "700",
   },
-  infoNoteInputWrap: {
-    minHeight: 120,
-    borderRadius: 16,
+  infoNoteText: {
+    color: Brand.text,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "600",
+  },
+  infoEmptyText: {
+    color: Brand.muted,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "500",
+  },
+  infoNoteDisplayWrap: {
+    minHeight: 66,
+    justifyContent: "flex-start",
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: Brand.border,
+    borderColor: Brand.borderSoft,
+    backgroundColor: Brand.surface,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  infoNoteDisplayText: {
+    textDecorationLine: "underline",
+    textDecorationColor: Brand.borderSoft,
+  },
+  infoNoteInputWrap: {
+    minHeight: 104,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Brand.borderSoft,
     backgroundColor: Brand.surface,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
   infoNoteInput: {
-    minHeight: 82,
+    minHeight: 70,
     padding: 0,
   },
   infoNoteCounter: {
@@ -2274,32 +2306,33 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   infoMapSection: {
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    gap: 7,
-    borderTopWidth: 1,
-    borderTopColor: Brand.border,
-    backgroundColor: Brand.surface,
+    paddingHorizontal: 18,
+    paddingTop: 15,
+    paddingBottom: 0,
+    gap: 6,
+    backgroundColor: "#FFFDF3",
   },
   infoMapTitle: {
-    color: Brand.text,
-    fontSize: 16,
-    fontWeight: "900",
+    color: Brand.muted,
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: "700",
   },
   infoLocationName: {
-    color: Brand.muted,
-    fontSize: 13,
-    fontWeight: "800",
+    color: Brand.text,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "600",
   },
   topBar: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
     paddingHorizontal: H_PADDING,
-    paddingBottom: 10,
-    backgroundColor: Brand.surface,
+    paddingBottom: 12,
+    backgroundColor: Brand.surfaceElevated,
     borderBottomWidth: 1,
-    borderBottomColor: Brand.border,
+    borderBottomColor: Brand.borderSoft,
   },
   logoImage: {
     width: 46,
@@ -2432,13 +2465,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 999,
     paddingHorizontal: 3,
-    backgroundColor: Brand.secondary,
+    backgroundColor: Brand.surfaceTint,
     borderWidth: 1,
     borderColor: Brand.border,
   },
   modeToggleActive: {
-    backgroundColor: Brand.primary,
-    borderColor: Brand.primary,
+    backgroundColor: Brand.lavenderDeep,
+    borderColor: Brand.lavenderDeep,
   },
   toggleThumb: {
     width: 24,
@@ -2465,7 +2498,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderStyle: "dashed",
     borderColor: Brand.primary,
-    backgroundColor: "rgba(255,255,255,0.74)",
+    backgroundColor: "rgba(255, 252, 248, 0.88)",
+    shadowColor: Brand.text,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.06,
+    shadowRadius: 18,
+    elevation: 5,
   },
   emptyTitle: {
     color: Brand.text,
@@ -2485,7 +2523,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 999,
-    backgroundColor: Brand.primary,
+    backgroundColor: Brand.surfaceElevated,
+    borderWidth: 1,
+    borderColor: Brand.borderSoft,
+    shadowColor: Brand.text,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    elevation: 6,
   },
   segmentingText: {
     color: Brand.text,
@@ -2498,46 +2543,62 @@ const styles = StyleSheet.create({
   },
   noteComposerScreen: {
     flex: 1,
-    backgroundColor: "#101014",
+    backgroundColor: Brand.secondary,
   },
   noteComposerHeader: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 22,
     paddingTop: 56,
     paddingBottom: 18,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.12)",
+    borderBottomColor: Brand.borderSoft,
+    backgroundColor: Brand.surfaceElevated,
   },
   noteComposerTitle: {
-    color: "#FFFFFF",
+    color: Brand.text,
     fontSize: 24,
     fontWeight: "900",
   },
   noteComposerSubtitle: {
-    color: "rgba(255,255,255,0.68)",
+    color: Brand.muted,
     fontSize: 14,
     lineHeight: 20,
     marginTop: 6,
   },
   noteComposerContent: {
     flex: 1,
-    gap: 14,
-    padding: 20,
+    gap: 16,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 20,
   },
   notePhotoPreview: {
-    height: 210,
+    height: 214,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
     borderRadius: 8,
-    backgroundColor: Brand.secondary,
+    backgroundColor: Brand.surfaceElevated,
+    borderWidth: 1,
+    borderColor: Brand.borderSoft,
+    shadowColor: Brand.text,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    elevation: 4,
   },
   notePhotoImage: {
-    width: "82%",
-    height: "82%",
+    width: "78%",
+    height: "78%",
   },
   noteObjectLabel: {
-    color: "#FFFFFF",
-    fontSize: 18,
+    alignSelf: "flex-start",
+    overflow: "hidden",
+    paddingHorizontal: 13,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: Brand.primary,
+    color: Brand.text,
+    fontSize: 14,
     fontWeight: "900",
   },
   noteInputWrap: {
@@ -2545,15 +2606,20 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.18)",
-    backgroundColor: "#19191F",
+    borderColor: Brand.borderSoft,
+    backgroundColor: Brand.surfaceElevated,
+    shadowColor: Brand.text,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.05,
+    shadowRadius: 14,
+    elevation: 3,
   },
   noteInput: {
     minHeight: 116,
     paddingHorizontal: 14,
     paddingTop: 14,
     paddingBottom: 8,
-    color: "#FFFFFF",
+    color: Brand.text,
     fontSize: 16,
     lineHeight: 23,
   },
@@ -2561,7 +2627,7 @@ const styles = StyleSheet.create({
     alignSelf: "flex-end",
     paddingHorizontal: 12,
     paddingBottom: 10,
-    color: "rgba(255,255,255,0.5)",
+    color: Brand.muted,
     fontSize: 12,
     fontWeight: "800",
     fontVariant: ["tabular-nums"],
@@ -2573,8 +2639,26 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 24,
     borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.12)",
-    backgroundColor: "#101014",
+    borderTopColor: Brand.borderSoft,
+    backgroundColor: Brand.surfaceElevated,
+  },
+  notePrimaryButton: {
+    backgroundColor: Brand.text,
+  },
+  noteSecondaryButton: {
+    backgroundColor: Brand.surfaceWarm,
+    borderWidth: 1,
+    borderColor: Brand.borderSoft,
+  },
+  notePrimaryText: {
+    color: Brand.surface,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  noteSecondaryText: {
+    color: Brand.text,
+    fontSize: 14,
+    fontWeight: "900",
   },
   previewHeader: {
     paddingHorizontal: 18,
@@ -3145,6 +3229,11 @@ const styles = StyleSheet.create({
     backgroundColor: Brand.surface,
     borderWidth: 2,
     borderColor: Brand.border,
+    shadowColor: Brand.text,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+    elevation: 12,
   },
   shutterInner: {
     width: 54,

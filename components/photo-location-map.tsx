@@ -23,8 +23,8 @@ export function PhotoLocationMap({
       initialRegion={{
         latitude,
         longitude,
-        latitudeDelta: 0.008,
-        longitudeDelta: 0.008,
+        latitudeDelta: 0.004,
+        longitudeDelta: 0.004,
       }}
       scrollEnabled={false}
       zoomEnabled={false}
@@ -38,7 +38,7 @@ export function PhotoLocationMap({
 
 const styles = StyleSheet.create({
   map: {
-    height: 180,
+    height: 120,
     marginTop: 6,
     overflow: "hidden",
     borderRadius: 8,
