@@ -304,6 +304,10 @@ function markDragHeartbeat(body: Matter.Body) {
 }
 
 function limitThrowSpeed(value: number) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
   return Math.max(-MAX_THROW_SPEED, Math.min(MAX_THROW_SPEED, value));
 }
 
@@ -367,10 +371,12 @@ function clampPhotoPosition(
 
   const halfWidth = size.width / 2;
   const halfHeight = size.height / 2;
+  const safeX = Number.isFinite(position.x) ? position.x : worldSize.width / 2;
+  const safeY = Number.isFinite(position.y) ? position.y : worldSize.height / 2;
 
   return {
-    x: Math.max(halfWidth, Math.min(worldSize.width - halfWidth, position.x)),
-    y: Math.max(halfHeight, Math.min(worldSize.height - halfHeight, position.y)),
+    x: Math.max(halfWidth, Math.min(worldSize.width - halfWidth, safeX)),
+    y: Math.max(halfHeight, Math.min(worldSize.height - halfHeight, safeY)),
   };
 }
 
@@ -1083,11 +1089,20 @@ function PhysicsPhoto({
   const dragStartRef = useRef({ x: 0, y: 0 });
   const worldSizeRef = useRef(worldSize);
   const openPhotoInfoRef = useRef(onOpenPhotoInfo);
+  const isDraggingRef = useRef(false);
+  const dragFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   bodyRef.current = photo.body;
   photoSizeRef.current = { width: photo.width, height: photo.height };
   worldSizeRef.current = worldSize;
   openPhotoInfoRef.current = onOpenPhotoInfo;
+
+  const clearDragFallback = useCallback(() => {
+    if (dragFallbackRef.current) {
+      clearTimeout(dragFallbackRef.current);
+      dragFallbackRef.current = null;
+    }
+  }, []);
 
   const clearLongPressTimer = useCallback(() => {
     if (longPressTimerRef.current) {
@@ -1096,20 +1111,67 @@ function PhysicsPhoto({
     }
   }, []);
 
-  useEffect(() => clearLongPressTimer, [clearLongPressTimer]);
+  const endPhotoDrag = useCallback(
+    (velocity = { x: 0, y: 0 }) => {
+      const body = bodyRef.current;
+      clearDragFallback();
+      clearLongPressTimer();
+      isDraggingRef.current = false;
+      Body.setPosition(
+        body,
+        clampPhotoPosition(body.position, photoSizeRef.current, worldSizeRef.current),
+      );
+      Body.setStatic(body, false);
+      Body.setVelocity(body, velocity);
+      Body.setAngularVelocity(
+        body,
+        Number.isFinite(body.angularVelocity) ? body.angularVelocity : 0,
+      );
+    },
+    [clearDragFallback, clearLongPressTimer],
+  );
+
+  const scheduleDragFallback = useCallback(() => {
+    clearDragFallback();
+    dragFallbackRef.current = setTimeout(() => {
+      if (isDraggingRef.current) {
+        endPhotoDrag();
+      }
+    }, 1200);
+  }, [clearDragFallback, endPhotoDrag]);
+
+  useEffect(
+    () => () => {
+      clearDragFallback();
+      clearLongPressTimer();
+      if (isDraggingRef.current) {
+        const body = bodyRef.current;
+        isDraggingRef.current = false;
+        Body.setStatic(body, false);
+        Body.setVelocity(body, { x: 0, y: 0 });
+        Body.setAngularVelocity(body, 0);
+      }
+    },
+    [clearDragFallback, clearLongPressTimer],
+  );
 
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponderCapture: () => true,
       onMoveShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponderCapture: () => true,
       onPanResponderTerminationRequest: () => false,
+      onShouldBlockNativeResponder: () => true,
       onPanResponderGrant: () => {
         const body = bodyRef.current;
+        isDraggingRef.current = true;
         dragStartRef.current = { x: body.position.x, y: body.position.y };
         clearLongPressTimer();
         longPressTimerRef.current = setTimeout(() => {
           openPhotoInfoRef.current(photo);
         }, 1000);
+        scheduleDragFallback();
         Body.setStatic(body, true);
         markDragHeartbeat(body);
         Body.setVelocity(body, { x: 0, y: 0 });
@@ -1122,6 +1184,7 @@ function PhysicsPhoto({
 
         const body = bodyRef.current;
         markDragHeartbeat(body);
+        scheduleDragFallback();
         Body.setPosition(
           body,
           clampPhotoPosition(
@@ -1135,23 +1198,13 @@ function PhysicsPhoto({
         );
       },
       onPanResponderRelease: (_, gestureState) => {
-        clearLongPressTimer();
-        const body = bodyRef.current;
-        Body.setPosition(
-          body,
-          clampPhotoPosition(body.position, photoSizeRef.current, worldSizeRef.current),
-        );
-        Body.setStatic(body, false);
-        Body.setVelocity(body, {
+        endPhotoDrag({
           x: limitThrowSpeed(gestureState.vx * 4),
           y: limitThrowSpeed(gestureState.vy * 4),
         });
       },
       onPanResponderTerminate: () => {
-        clearLongPressTimer();
-        const body = bodyRef.current;
-        Body.setStatic(body, false);
-        Body.setVelocity(body, { x: 0, y: 0 });
+        endPhotoDrag();
       },
     }),
   ).current;
