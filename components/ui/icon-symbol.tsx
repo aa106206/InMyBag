@@ -19,6 +19,8 @@ const MAPPING = {
   'book.closed.fill': 'auto-stories',
   'gearshape.fill': 'settings',
   'house.fill': 'home',
+  'person.fill': 'person',
+  'safari.fill': 'explore',
   'paperplane.fill': 'send',
   'pencil': 'edit',
   'checkmark': 'check',
