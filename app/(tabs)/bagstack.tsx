@@ -984,12 +984,15 @@ function BagPhotoInfoModal({
               ) : (
                 <View style={styles.infoNoteSection}>
                   <View style={styles.infoNoteDisplayWrap}>
+                    <View pointerEvents="none" style={styles.infoNoteRules}>
+                      <View style={styles.infoNoteRule} />
+                      <View style={styles.infoNoteRule} />
+                      <View style={styles.infoNoteRule} />
+                    </View>
                     <Text
-                      style={[
-                        styles.infoNoteText,
-                        styles.infoNoteDisplayText,
-                        !photo.note ? styles.infoEmptyText : null,
-                      ]}
+                      numberOfLines={3}
+                      ellipsizeMode="tail"
+                      style={[styles.infoNoteText, styles.infoNoteDisplayText, !photo.note ? styles.infoEmptyText : null]}
                     >
                       {photo.note || "아직 기록이 없어요."}
                     </Text>
@@ -2273,8 +2276,10 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   infoNoteDisplayWrap: {
-    minHeight: 66,
+    minHeight: 82,
     justifyContent: "flex-start",
+    overflow: "hidden",
+    position: "relative",
     borderRadius: 8,
     borderWidth: 1,
     borderColor: Brand.borderSoft,
@@ -2283,8 +2288,18 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   infoNoteDisplayText: {
-    textDecorationLine: "underline",
-    textDecorationColor: Brand.borderSoft,
+    zIndex: 1,
+  },
+  infoNoteRules: {
+    position: "absolute",
+    left: 12,
+    right: 12,
+    top: 29,
+    gap: 19,
+  },
+  infoNoteRule: {
+    height: 1,
+    backgroundColor: "rgba(199, 184, 234, 0.24)",
   },
   infoNoteInputWrap: {
     minHeight: 104,
