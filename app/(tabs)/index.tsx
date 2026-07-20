@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { PhotoLocationMap } from '@/components/photo-location-map';
 import { Brand } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { loadFriendBagItems, SavedBagItem } from '@/services/bag-items';
@@ -363,33 +364,72 @@ function PhotoInfoModal({
   selectedPhoto: SelectedPhotoInfo | null;
   onClose: () => void;
 }) {
+  const item = selectedPhoto?.item ?? null;
+  const objectName = item?.objectLabel?.trim() || '가방 물건';
+  const locationName = item?.locationName?.trim() || '위치 정보가 없어요';
+  const hasPhotoLocation =
+    typeof item?.locationLatitude === 'number'
+    && Number.isFinite(item.locationLatitude)
+    && typeof item.locationLongitude === 'number'
+    && Number.isFinite(item.locationLongitude);
+
   return (
     <Modal visible={!!selectedPhoto} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.infoOverlay}>
         <View style={styles.infoCard}>
-          <Pressable style={styles.infoCloseButton} onPress={onClose} hitSlop={10}>
-            <Text style={styles.infoCloseText}>×</Text>
-          </Pressable>
           {selectedPhoto ? (
-            <>
+            <ScrollView
+              style={styles.infoScroll}
+              contentContainerStyle={styles.infoScrollContent}
+              showsVerticalScrollIndicator={false}
+            >
               <View style={styles.infoHeader}>
                 <View style={styles.infoTitleBlock}>
-                  <Text style={styles.infoObjectName}>@{selectedPhoto.friendName}의 물건</Text>
-                  <Text style={styles.infoCapturedAt}>
-                    {formatCapturedAt(selectedPhoto.item.createdAt)}에 담았어요
+                  <Text style={styles.infoObjectName}>{objectName}</Text>
+                  <Text style={styles.infoCapturedAt}>{formatCapturedAt(selectedPhoto.item.createdAt)}</Text>
+                </View>
+                <Pressable
+                  style={styles.infoCloseButton}
+                  onPress={onClose}
+                  hitSlop={10}
+                  accessibilityRole="button"
+                  accessibilityLabel="사진 정보 닫기"
+                >
+                  <Text style={styles.infoCloseText}>×</Text>
+                </Pressable>
+              </View>
+              <View style={styles.infoImageStage}>
+                <Image source={{ uri: selectedPhoto.item.imageUrl }} style={styles.infoImage} resizeMode="contain" />
+              </View>
+              <View style={styles.infoNoteSection}>
+                <View style={styles.infoNoteDisplayWrap}>
+                  <View pointerEvents="none" style={styles.infoNoteRules}>
+                    <View style={styles.infoNoteRule} />
+                    <View style={styles.infoNoteRule} />
+                    <View style={styles.infoNoteRule} />
+                  </View>
+                  <Text
+                    numberOfLines={3}
+                    ellipsizeMode="tail"
+                    style={[styles.infoNoteText, styles.infoNoteDisplayText, !selectedPhoto.item.note ? styles.infoEmptyText : null]}
+                  >
+                    {selectedPhoto.item.note || '아직 기록이 없어요.'}
                   </Text>
                 </View>
               </View>
-              <View style={styles.infoImageStage}>
-                <Image source={{ uri: selectedPhoto.item.imageUrl }} style={styles.infoImage} />
+              <View style={styles.infoMapSection}>
+                <Text style={styles.infoMapTitle}>찍은 위치</Text>
+                <Text style={styles.infoLocationName}>{locationName}</Text>
+                {hasPhotoLocation ? (
+                  <PhotoLocationMap
+                    latitude={selectedPhoto.item.locationLatitude as number}
+                    longitude={selectedPhoto.item.locationLongitude as number}
+                    title={objectName}
+                    description={locationName}
+                  />
+                ) : null}
               </View>
-              {selectedPhoto.item.note ? (
-                <View style={styles.infoNoteSection}>
-                  <Text style={styles.infoNoteTitle}>기록</Text>
-                  <Text style={styles.infoNoteText}>{selectedPhoto.item.note}</Text>
-                </View>
-              ) : null}
-            </>
+            </ScrollView>
           ) : null}
         </View>
       </View>
@@ -821,87 +861,92 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 22,
-    backgroundColor: 'rgba(17, 24, 39, 0.42)',
+    paddingHorizontal: 20,
+    backgroundColor: 'rgba(17, 24, 39, 0.30)',
   },
   infoCard: {
-    width: '100%',
-    maxWidth: 360,
-    maxHeight: '66%',
+    width: '88%',
+    maxWidth: 372,
+    maxHeight: '80%',
     overflow: 'hidden',
     borderRadius: 8,
-    backgroundColor: Brand.surfaceElevated,
+    backgroundColor: '#FFFDF3',
     borderWidth: 1,
-    borderColor: Brand.borderSoft,
+    borderColor: 'rgba(230, 215, 221, 0.72)',
     shadowColor: Brand.text,
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.14,
-    shadowRadius: 22,
-    elevation: 14,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+    elevation: 10,
+  },
+  infoScroll: {
+    maxHeight: '100%',
+  },
+  infoScrollContent: {
+    paddingBottom: 18,
   },
   infoCloseButton: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    zIndex: 20,
-    width: 28,
-    height: 28,
+    width: 30,
+    height: 30,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.84)',
+    borderRadius: 15,
   },
   infoCloseText: {
     color: Brand.text,
-    fontSize: 24,
-    lineHeight: 26,
-    fontWeight: '900',
+    fontSize: 34,
+    lineHeight: 34,
+    fontWeight: '500',
   },
   infoHeader: {
-    minHeight: 76,
+    minHeight: 82,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: Brand.borderSoft,
+    gap: 10,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 10,
+    backgroundColor: '#FFFDF3',
   },
   infoTitleBlock: {
     flex: 1,
-    gap: 3,
-    paddingRight: 28,
+    gap: 4,
+    paddingRight: 6,
   },
   infoObjectName: {
     color: Brand.text,
-    fontSize: 21,
-    fontWeight: '900',
+    fontSize: 24,
+    lineHeight: 29,
+    fontWeight: '800',
   },
   infoCapturedAt: {
     color: Brand.muted,
-    fontSize: 13,
-    fontWeight: '800',
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '500',
   },
   infoImageStage: {
-    minHeight: 280,
+    height: 172,
+    marginHorizontal: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 24,
-    backgroundColor: Brand.surfaceWarm,
+    overflow: 'hidden',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(17, 24, 39, 0.14)',
+    backgroundColor: Brand.surface,
   },
   infoImage: {
-    width: '86%',
-    height: 220,
+    width: '100%',
+    height: '100%',
     resizeMode: 'contain',
   },
   infoNoteSection: {
-    gap: 6,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderTopWidth: 1,
-    borderTopColor: Brand.border,
-    backgroundColor: Brand.surface,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 6,
+    backgroundColor: '#FFFDF3',
   },
   infoNoteTitle: {
     color: Brand.muted,
@@ -910,9 +955,58 @@ const styles = StyleSheet.create({
   },
   infoNoteText: {
     color: Brand.text,
-    fontSize: 15,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  infoEmptyText: {
+    color: Brand.muted,
+    fontWeight: '500',
+  },
+  infoNoteDisplayWrap: {
+    minHeight: 82,
+    justifyContent: 'flex-start',
+    overflow: 'hidden',
+    position: 'relative',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Brand.borderSoft,
+    backgroundColor: Brand.surface,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  infoNoteDisplayText: {
+    zIndex: 1,
+  },
+  infoNoteRules: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    top: 29,
+    gap: 19,
+  },
+  infoNoteRule: {
+    height: 1,
+    backgroundColor: 'rgba(199, 184, 234, 0.24)',
+  },
+  infoMapSection: {
+    paddingHorizontal: 18,
+    paddingTop: 15,
+    paddingBottom: 0,
+    gap: 6,
+    backgroundColor: '#FFFDF3',
+  },
+  infoMapTitle: {
+    color: Brand.muted,
+    fontSize: 17,
     lineHeight: 22,
     fontWeight: '700',
+  },
+  infoLocationName: {
+    color: Brand.text,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
   },
   feedHeader: {
     backgroundColor: Brand.surface,
