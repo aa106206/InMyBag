@@ -45,9 +45,21 @@ alter table public.bag_items add column if not exists location_name text;
 alter table public.bag_items add column if not exists location_latitude double precision;
 alter table public.bag_items add column if not exists location_longitude double precision;
 
+create table if not exists public.support_inquiries (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  email text,
+  message text not null check (
+    char_length(trim(message)) > 0
+    and char_length(message) <= 120
+  ),
+  created_at timestamptz not null default now()
+);
+
 alter table public.profiles enable row level security;
 alter table public.bag_stacks enable row level security;
 alter table public.bag_items enable row level security;
+alter table public.support_inquiries enable row level security;
 
 drop policy if exists "Profiles are readable by everyone" on public.profiles;
 drop policy if exists "Users can insert their own profile" on public.profiles;
@@ -60,6 +72,8 @@ drop policy if exists "Users can read items from their own bag stacks" on public
 drop policy if exists "Users can insert items into their own bag stacks" on public.bag_items;
 drop policy if exists "Users can update items in their own bag stacks" on public.bag_items;
 drop policy if exists "Users can delete items from their own bag stacks" on public.bag_items;
+drop policy if exists "Users can insert their own support inquiries" on public.support_inquiries;
+drop policy if exists "Users can read their own support inquiries" on public.support_inquiries;
 
 create policy "Profiles are readable by everyone"
   on public.profiles
@@ -153,6 +167,16 @@ create policy "Users can delete items from their own bag stacks"
         and bag_stacks.user_id = auth.uid()
     )
   );
+
+create policy "Users can insert their own support inquiries"
+  on public.support_inquiries
+  for insert
+  with check (auth.uid() = user_id);
+
+create policy "Users can read their own support inquiries"
+  on public.support_inquiries
+  for select
+  using (auth.uid() = user_id);
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (

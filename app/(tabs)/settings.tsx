@@ -24,6 +24,11 @@ import {
   loadCurrentProfile,
   updateProfileAvatar,
 } from '@/services/profile';
+import {
+  getSupportInquiryErrorMessage,
+  sendSupportInquiry,
+  SUPPORT_INQUIRY_MAX_LENGTH,
+} from '@/services/support-inquiries';
 
 type SettingsAction = {
   id: string;
@@ -113,6 +118,10 @@ export default function SettingsScreen() {
   const [profileImageUri, setProfileImageUri] = useState(defaultProfileImage);
   const [isProfileImageSaving, setIsProfileImageSaving] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
+  const [showContact, setShowContact] = useState(false);
+  const [contactMessage, setContactMessage] = useState('');
+  const [contactError, setContactError] = useState('');
+  const [isContactSubmitting, setIsContactSubmitting] = useState(false);
   const [accountEditMode, setAccountEditMode] = useState<AccountEditMode | null>(null);
   const [accountEmail, setAccountEmail] = useState(user?.email ?? '');
   const [accountPassword, setAccountPassword] = useState('');
@@ -233,8 +242,51 @@ export default function SettingsScreen() {
       return;
     }
 
+    if (action.id === 'contact') {
+      setShowContact(true);
+      setContactError('');
+      return;
+    }
+
     if (action.id === 'logout') {
       await signOut();
+    }
+  };
+
+  const closeContactModal = () => {
+    if (isContactSubmitting) {
+      return;
+    }
+
+    setShowContact(false);
+    setContactMessage('');
+    setContactError('');
+  };
+
+  const submitContactInquiry = async () => {
+    if (isContactSubmitting) {
+      return;
+    }
+
+    setContactError('');
+
+    if (!contactMessage.trim()) {
+      setContactError('문의 내용을 입력해 주세요.');
+      return;
+    }
+
+    setIsContactSubmitting(true);
+
+    try {
+      await sendSupportInquiry(user, contactMessage);
+      Alert.alert('문의 전송', '문의 내용이 전송됐어요.');
+      setShowContact(false);
+      setContactMessage('');
+      setContactError('');
+    } catch (error) {
+      setContactError(getSupportInquiryErrorMessage(error));
+    } finally {
+      setIsContactSubmitting(false);
     }
   };
 
@@ -411,6 +463,68 @@ export default function SettingsScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+      <Modal visible={showContact} transparent animationType="fade" onRequestClose={closeContactModal}>
+        <KeyboardAvoidingView
+          style={styles.contactOverlay}
+          behavior={Platform.select({ ios: 'padding', default: undefined })}
+        >
+          <View style={styles.contactCard}>
+            <View style={styles.accountHeader}>
+              <Text style={styles.accountTitle}>문의하기</Text>
+              <Pressable
+                style={styles.accountCloseButton}
+                onPress={closeContactModal}
+                disabled={isContactSubmitting}
+                hitSlop={10}
+              >
+                <Text style={styles.accountCloseText}>×</Text>
+              </Pressable>
+            </View>
+            <Text style={styles.accountDescription}>
+              불편한 점이나 제안하고 싶은 내용을 짧게 남겨 주세요. 확인 후 앱 개선에 참고할게요.
+            </Text>
+            <TextInput
+              value={contactMessage}
+              onChangeText={(text) => {
+                setContactMessage(text);
+                if (contactError) {
+                  setContactError('');
+                }
+              }}
+              placeholder="문의 내용을 입력해 주세요."
+              placeholderTextColor={Brand.muted}
+              multiline
+              maxLength={SUPPORT_INQUIRY_MAX_LENGTH}
+              textAlignVertical="top"
+              editable={!isContactSubmitting}
+              style={styles.contactInput}
+            />
+            <View style={styles.contactMetaRow}>
+              {contactError ? <Text style={styles.accountError}>{contactError}</Text> : <View />}
+              <Text style={styles.contactCount}>
+                {contactMessage.length}/{SUPPORT_INQUIRY_MAX_LENGTH}
+              </Text>
+            </View>
+            <View style={styles.contactFooter}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.contactSubmitButton,
+                  pressed ? styles.accountSubmitButtonPressed : undefined,
+                  isContactSubmitting ? styles.accountSubmitButtonDisabled : undefined,
+                ]}
+                onPress={submitContactInquiry}
+                disabled={isContactSubmitting}
+              >
+                {isContactSubmitting ? (
+                  <ActivityIndicator color={Brand.surface} />
+                ) : (
+                  <Text style={styles.contactSubmitText}>전송</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
       <Modal visible={showGuide} transparent animationType="fade" onRequestClose={() => setShowGuide(false)}>
         <View style={styles.guideOverlay}>
           <View style={styles.guideCard}>
@@ -424,30 +538,36 @@ export default function SettingsScreen() {
             >
               <Text style={styles.guideTitle}>SnapBag 이용 안내</Text>
               <Text style={styles.guideLead}>
-                SnapBag는 사진으로 내 가방 속 물건을 기록하고, 친구들의 가방도 둘러볼 수 있는 앱이에요.
+                SnapBag는 사진으로 내 가방 속 물건을 기록하고, 친구와 다른 사용자들의 가방을 둘러볼 수 있는 앱이에요.
               </Text>
               <View style={styles.guideSection}>
                 <Text style={styles.guideSectionTitle}>내 가방</Text>
                 <Text style={styles.guideText}>
-                  셔터 버튼으로 사진을 찍으면 물건만 잘라 가방 공간에 떨어뜨릴 수 있어요. 휴대폰을 기울이면 물건들이 실제처럼 움직이고, 직접 드래그해서 옮길 수도 있어요.
-                </Text>
-              </View>
-              <View style={styles.guideSection}>
-                <Text style={styles.guideSectionTitle}>가방 기록</Text>
-                <Text style={styles.guideText}>
-                  상단 토글을 누르면 날짜별로 쌓인 가방 기록을 볼 수 있어요. 지금은 예시 데이터지만, 나중에는 실제 기록이 여기에 모이게 돼요.
+                  셔터 버튼으로 사진을 찍으면 물건만 잘라 가방 공간에 떨어뜨릴 수 있어요. 휴대폰을 기울이면 물건들이 실제처럼 움직이고, 직접 드래그해서 옮길 수도 있어요. 물건을 길게 누르면 이름, 기록, 촬영 위치를 확인하고 수정하거나 삭제할 수 있어요.
                 </Text>
               </View>
               <View style={styles.guideSection}>
                 <Text style={styles.guideSectionTitle}>피드</Text>
                 <Text style={styles.guideText}>
-                  친구 프로필을 누르면 친구의 가방이 아래에 보여요. 물건을 길게 누르면 사진 정보, 좋아요, 촬영 위치를 카드로 확인할 수 있어요.
+                  친구로 추가한 사람들의 가방만 모아 보는 공간이에요. 상단 친구 프로필을 누르면 그 친구의 가방이 아래에 나타나고, 물건을 길게 누르면 사진 정보와 좋아요, 촬영 위치를 카드로 확인할 수 있어요.
+                </Text>
+              </View>
+              <View style={styles.guideSection}>
+                <Text style={styles.guideSectionTitle}>둘러보기</Text>
+                <Text style={styles.guideText}>
+                  친구 여부와 상관없이 SnapBag 사용자 중 랜덤하게 가방을 둘러볼 수 있어요. 새로운 사람의 가방을 구경하고, 마음에 드는 물건의 상세 정보도 확인할 수 있어요.
                 </Text>
               </View>
               <View style={styles.guideSection}>
                 <Text style={styles.guideSectionTitle}>오늘의 이야기</Text>
                 <Text style={styles.guideText}>
                   오늘 수집한 모든 물건을 주인공으로 삼아 그림일기를 만들어요. 분위기와 길이, 상상력을 고른 뒤 만든 이야기를 저장하거나 친구에게 공유할 수 있어요.
+                </Text>
+              </View>
+              <View style={styles.guideSection}>
+                <Text style={styles.guideSectionTitle}>설정</Text>
+                <Text style={styles.guideText}>
+                  프로필 사진, 이메일, 비밀번호를 바꾸고 친구 관리로 친구 요청을 확인할 수 있어요. 친구 초대로 SnapBag 설치 링크를 공유할 수도 있어요.
                 </Text>
               </View>
             </ScrollView>
@@ -603,6 +723,71 @@ const styles = StyleSheet.create({
   accountSubmitText: {
     color: Brand.surface,
     fontSize: 15,
+    fontWeight: '900',
+  },
+  contactOverlay: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 22,
+    backgroundColor: 'rgba(17, 24, 39, 0.42)',
+  },
+  contactCard: {
+    width: '100%',
+    maxWidth: 360,
+    gap: 12,
+    padding: 18,
+    borderRadius: 8,
+    backgroundColor: Brand.surfaceElevated,
+    borderWidth: 1,
+    borderColor: Brand.borderSoft,
+    shadowColor: Brand.text,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.14,
+    shadowRadius: 22,
+    elevation: 14,
+  },
+  contactInput: {
+    minHeight: 118,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: Brand.surfaceWarm,
+    borderWidth: 1,
+    borderColor: Brand.borderSoft,
+    color: Brand.text,
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '700',
+  },
+  contactMetaRow: {
+    minHeight: 20,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  contactCount: {
+    color: Brand.muted,
+    fontSize: 12,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+  },
+  contactFooter: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  contactSubmitButton: {
+    minWidth: 88,
+    height: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+    backgroundColor: Brand.text,
+  },
+  contactSubmitText: {
+    color: Brand.surface,
+    fontSize: 14,
     fontWeight: '900',
   },
   guideOverlay: {
