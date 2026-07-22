@@ -27,20 +27,7 @@ import {
   STORY_EMOTIONS,
   type GeneratedStory,
   type StoryEmotion,
-  type StoryMood,
 } from '@/services/stories';
-
-const moods: { id: StoryMood; emoji: string; label: string; description: string }[] = [
-  { id: 'warm', emoji: '☕', label: '따뜻한 하루', description: '오늘의 순간을 포근한 그림일기로 남겨요' },
-  { id: 'adventure', emoji: '🎈', label: '즐거운 하루', description: '물건들과 함께 떠나는 유쾌한 모험이에요' },
-  { id: 'comedy', emoji: '🤭', label: '엉뚱한 코미디', description: '예상 밖의 사건과 웃긴 반전이 생겨요' },
-];
-
-const momentSuggestions = [
-  '카페에서 보낸 시간',
-  '학교에서 있었던 일',
-  '산책하다 발견한 순간',
-];
 
 function getCreativityCopy(value: number) {
   if (value <= 3) return '오늘 있었던 일에 가까운 그림일기';
@@ -221,7 +208,6 @@ export default function StoryScreen() {
   const [story, setStory] = useState<GeneratedStory | null>(null);
   const [concept, setConcept] = useState('');
   const [emotion, setEmotion] = useState<StoryEmotion>(DEFAULT_EMOTION);
-  const [mood, setMood] = useState<StoryMood>('warm');
   const [creativity, setCreativity] = useState(7);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -268,7 +254,6 @@ export default function StoryScreen() {
       const generatedStory = await generateStoryWithGemini({
         items: todayItems,
         dailyMoment: concept,
-        mood,
         emotion,
         creativity,
       });
@@ -410,7 +395,9 @@ export default function StoryScreen() {
                 <View style={styles.questionNumber}><Text style={styles.questionNumberText}>2</Text></View>
                 <View style={styles.questionTitleCopy}>
                   <Text style={styles.questionTitle}>오늘 어떤 일이 있었나요?</Text>
-                  <Text style={styles.questionDescription}>작은 일도 좋아요. 비워 두면 물건만으로 만들어요.</Text>
+                  <Text style={styles.questionDescription}>
+                    적어 주신 이야기를 중심으로, 가방 속 물건이 자연스럽게 함께 등장해요.
+                  </Text>
                 </View>
                 <Text style={styles.optionalBadge}>선택</Text>
               </View>
@@ -427,17 +414,6 @@ export default function StoryScreen() {
                 />
                 <Text style={styles.characterCount}>{concept.length}/160</Text>
               </View>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.suggestionRail}>
-                {momentSuggestions.map((suggestion) => (
-                  <Pressable
-                    key={suggestion}
-                    onPress={() => setConcept(suggestion)}
-                    style={({ pressed }) => [styles.suggestionChip, pressed && styles.suggestionChipPressed]}
-                  >
-                    <Text style={styles.suggestionChipText}>+ {suggestion}</Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
             </View>
 
             <View style={styles.questionDivider} />
@@ -445,47 +421,6 @@ export default function StoryScreen() {
             <View style={styles.questionBlock}>
               <View style={styles.questionTitleRow}>
                 <View style={styles.questionNumber}><Text style={styles.questionNumberText}>3</Text></View>
-                <View style={styles.questionTitleCopy}>
-                  <Text style={styles.questionTitle}>어떤 이야기로 만들까요?</Text>
-                  <Text style={styles.questionDescription}>오늘을 기억하고 싶은 방식을 하나 골라요.</Text>
-                </View>
-              </View>
-              <View style={styles.moodList}>
-              {moods.map((option) => {
-                const selected = mood === option.id;
-                return (
-                  <Pressable
-                    key={option.id}
-                    onPress={() => setMood(option.id)}
-                    accessibilityRole="radio"
-                    accessibilityState={{ checked: selected }}
-                    style={({ pressed }) => [
-                      styles.moodCard,
-                      selected && styles.moodCardSelected,
-                      pressed && styles.moodCardPressed,
-                    ]}
-                  >
-                    <View style={[styles.moodEmojiWrap, selected && styles.moodEmojiWrapSelected]}>
-                      <Text style={styles.moodEmoji}>{option.emoji}</Text>
-                    </View>
-                    <View style={styles.moodCopy}>
-                      <Text style={[styles.moodLabel, selected && styles.moodLabelSelected]}>{option.label}</Text>
-                      <Text style={styles.moodDescription}>{option.description}</Text>
-                    </View>
-                    <View style={[styles.radioOuter, selected && styles.radioOuterSelected]}>
-                      {selected ? <View style={styles.radioInner} /> : null}
-                    </View>
-                  </Pressable>
-                );
-              })}
-              </View>
-            </View>
-
-            <View style={styles.questionDivider} />
-
-            <View style={styles.questionBlock}>
-              <View style={styles.questionTitleRow}>
-                <View style={styles.questionNumber}><Text style={styles.questionNumberText}>4</Text></View>
                 <View style={styles.questionTitleCopy}>
                   <Text style={styles.questionTitle}>상상을 얼마나 더할까요?</Text>
                   <Text style={styles.questionDescription}>{getCreativityCopy(creativity)}</Text>
@@ -540,7 +475,9 @@ export default function StoryScreen() {
             <Pressable onPress={generate} disabled={generating || todayItems.length === 0} style={[styles.generateButton, (generating || todayItems.length === 0) && styles.generateButtonDisabled]}>
               {generating ? <ActivityIndicator color="#FFFFFF" /> : <><Text style={styles.generateSpark}>✦</Text><Text style={styles.generateText}>오늘의 이야기 만들기</Text></>}
             </Pressable>
-            <Text style={styles.generateHint}>오늘의 물건 {todayItems.length}개가 모두 이야기에 등장해요</Text>
+            <Text style={styles.generateHint}>
+              가방 속 물건 {todayItems.length}개가 이야기에 자연스럽게 함께 담겨요
+            </Text>
           </View>
 
           {story ? (
@@ -651,30 +588,12 @@ const styles = StyleSheet.create({
   momentInputWrap: { minHeight: 112, marginTop: 14, borderRadius: 18, backgroundColor: Brand.surfaceElevated, borderWidth: 1, borderColor: Brand.borderSoft, overflow: 'hidden' },
   momentInput: { minHeight: 82, paddingHorizontal: 14, paddingTop: 13, paddingBottom: 6, color: Brand.text, fontSize: 13, lineHeight: 20 },
   characterCount: { alignSelf: 'flex-end', paddingHorizontal: 12, paddingBottom: 9, color: '#AAA2A5', fontSize: 9, fontWeight: '600' },
-  suggestionRail: { gap: 7, paddingTop: 10, paddingRight: 12 },
-  suggestionChip: { paddingHorizontal: 11, paddingVertical: 8, borderRadius: 12, backgroundColor: Brand.surfaceElevated, borderWidth: 1, borderColor: Brand.borderSoft },
-  suggestionChipPressed: { opacity: 0.6 },
-  suggestionChipText: { color: '#725E98', fontSize: 10, fontWeight: '700' },
   emotionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
   emotionChip: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 14, backgroundColor: Brand.surface, borderWidth: 1.5, borderColor: Brand.border },
   emotionSwatch: { width: 10, height: 10, borderRadius: 3 },
   emotionEmoji: { fontSize: 15 },
   emotionLabel: { fontSize: 13, fontWeight: '800', color: Brand.muted },
   emotionLabelSelected: { color: Brand.text },
-  moodList: { gap: 9, marginTop: 14 },
-  moodCard: { minHeight: 72, borderRadius: 17, borderWidth: 1, borderColor: '#E9E1DF', backgroundColor: '#FBF9F7', paddingHorizontal: 12, paddingVertical: 11, flexDirection: 'row', alignItems: 'center' },
-  moodCardSelected: { borderWidth: 2, borderColor: '#947CC6', backgroundColor: '#F3EEFC', paddingHorizontal: 11, paddingVertical: 10 },
-  moodCardPressed: { opacity: 0.66 },
-  moodEmojiWrap: { width: 43, height: 43, borderRadius: 15, backgroundColor: '#F2EEEA', alignItems: 'center', justifyContent: 'center', marginRight: 11 },
-  moodEmojiWrapSelected: { backgroundColor: '#E5DAF7' },
-  moodEmoji: { fontSize: 23 },
-  moodCopy: { flex: 1, paddingRight: 8 },
-  moodLabel: { fontSize: 13, lineHeight: 18, fontWeight: '900', color: Brand.text },
-  moodLabelSelected: { color: '#675293' },
-  moodDescription: { fontSize: 10, lineHeight: 15, color: Brand.muted, marginTop: 3 },
-  radioOuter: { width: 21, height: 21, borderRadius: 11, borderWidth: 1.5, borderColor: '#CFC6CA', alignItems: 'center', justifyContent: 'center' },
-  radioOuterSelected: { borderColor: '#8B72BD' },
-  radioInner: { width: 11, height: 11, borderRadius: 6, backgroundColor: '#8B72BD' },
   creativityBadge: { flexDirection: 'row', alignItems: 'baseline', marginLeft: 8, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 11, backgroundColor: '#EEE7FA' },
   creativityBadgeValue: { color: '#725E98', fontSize: 15, fontWeight: '900' },
   creativityBadgeTotal: { color: '#9B8DAF', fontSize: 9, fontWeight: '800' },

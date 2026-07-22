@@ -51,6 +51,7 @@ import {
   STORY_EMOTIONS,
   type GeneratedStory,
 } from "@/services/stories";
+import { withSampleStories } from "@/services/story-samples";
 
 const TARGET_OBJECT_SIZE = 112;
 const H_PADDING = 16;
@@ -140,9 +141,11 @@ function buildShelfForMonth(
 }
 
 // 책등 높이를 날짜별로 살짝 다르게 해 실제 책장처럼 보이게 한다.
-function spineHeight(day: number, filled: boolean) {
-  if (!filled) return 94;
-  return 98 + [0, 7, 3, 10, 5, 2][day % 6];
+// 책장은 스크롤 없이 한 화면에 들어가야 하므로, 고정 px가 아니라
+// 선반 한 칸 높이에 대한 비율로 계산해 화면 크기에 맞춰 늘어나고 줄어들게 한다.
+function spineHeightRatio(day: number, filled: boolean) {
+  if (!filled) return 0.74;
+  return 0.86 + [0, 0.07, 0.03, 0.1, 0.05, 0.02][day % 6];
 }
 
 function formatReaderDate(iso: string) {
@@ -151,8 +154,10 @@ function formatReaderDate(iso: string) {
   return `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일`;
 }
 
-const SPINES_PER_ROW = 10;
-const SPINE_GAP = 5;
+// 한 줄 10칸이면 31일이 10/10/10/1로 나뉘어 마지막 선반이 거의 비어 보인다.
+// 8칸으로 줄이면 8/8/8/7이 되어 선반 네 칸이 고르게 차고 책등도 그만큼 넓어진다.
+const SPINES_PER_ROW = 8;
+const SPINE_GAP = 6;
 const SHELF_BOARD_PADDING = 14;
 const HISTORY_H_PADDING = 14;
 const SPINE_WIDTH = Math.max(
@@ -1247,7 +1252,7 @@ function PhysicsPhoto({
 function BookSpine({ item, onPress }: { item: ShelfDay; onPress: () => void }) {
   const filled = !!item.story;
   const theme = item.story ? storyTheme(item.story) : null;
-  const height = spineHeight(item.day, filled);
+  const heightPercent = `${Math.round(spineHeightRatio(item.day, filled) * 100)}%` as const;
 
   return (
     <Pressable
@@ -1258,7 +1263,11 @@ function BookSpine({ item, onPress }: { item: ShelfDay; onPress: () => void }) {
       }
       style={[
         styles.spine,
-        { width: SPINE_WIDTH, height, backgroundColor: filled ? theme!.color : "#413C4A" },
+        {
+          width: SPINE_WIDTH,
+          height: heightPercent,
+          backgroundColor: filled ? theme!.color : "#413C4A",
+        },
         filled && styles.spineFilled,
       ]}
     >
@@ -1280,27 +1289,125 @@ function MonthShelf({
     rows.push(shelf.days.slice(index, index + SPINES_PER_ROW));
   }
 
+  // 선반 칸 수는 달마다 4줄로 같으므로, 남은 세로 공간을 각 줄이 flex로 나눠 갖는다.
+  // 덕분에 기기 화면이 작아도 스크롤 없이 한 화면에 들어간다.
   return (
-    <View style={styles.monthShelf}>
-      <View style={styles.monthHeader}>
-        <Text style={styles.monthTitle}>{shelf.title}</Text>
-        <Text style={styles.monthCount}>
-          {shelf.filledCount > 0 ? `${shelf.filledCount}편의 이야기` : "아직 비어 있어요"}
-        </Text>
-      </View>
-      <View style={styles.shelfBoard}>
-        {rows.map((row, rowIndex) => (
-          <View key={rowIndex} style={styles.shelfRow}>
-            <View style={styles.shelfSpines}>
-              {row.map((day) => (
-                <BookSpine key={day.day} item={day} onPress={() => onSelect(day)} />
-              ))}
-            </View>
-            <View style={styles.shelfLedge} />
+    <View style={styles.shelfBoard}>
+      {rows.map((row, rowIndex) => (
+        <View key={rowIndex} style={styles.shelfRow}>
+          <View style={styles.shelfSpines}>
+            {row.map((day) => (
+              <BookSpine key={day.day} item={day} onPress={() => onSelect(day)} />
+            ))}
           </View>
-        ))}
-      </View>
+          <View style={styles.shelfLedge} />
+        </View>
+      ))}
     </View>
+  );
+}
+
+// 연/월을 한 번에 고르는 그리드 시트.
+// 평소에는 상단 화살표로 한 달씩 옮기고, 먼 달로 건너뛸 때만 이 시트를 연다.
+function PeriodPickerSheet({
+  visible,
+  year,
+  month,
+  today,
+  storyMonths,
+  onSelect,
+  onClose,
+}: {
+  visible: boolean;
+  year: number;
+  month: number;
+  today: Date;
+  storyMonths: Set<string>;
+  onSelect: (year: number, month: number) => void;
+  onClose: () => void;
+}) {
+  const [draftYear, setDraftYear] = useState(year);
+
+  useEffect(() => {
+    if (visible) {
+      setDraftYear(year);
+    }
+  }, [visible, year]);
+
+  const maxYear = today.getFullYear();
+  const maxMonth = draftYear === maxYear ? today.getMonth() + 1 : 12;
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.pickerBackdrop} onPress={onClose}>
+        <Pressable style={styles.pickerCard} onPress={() => {}}>
+          <View style={styles.pickerYearRow}>
+            <Pressable
+              style={[styles.pickerYearArrow, draftYear <= SHELF_START_YEAR && styles.arrowDisabled]}
+              onPress={() => setDraftYear((value) => value - 1)}
+              disabled={draftYear <= SHELF_START_YEAR}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel="이전 연도"
+            >
+              <Text style={styles.pickerYearArrowText}>‹</Text>
+            </Pressable>
+            <Text style={styles.pickerYearText}>{draftYear}년</Text>
+            <Pressable
+              style={[styles.pickerYearArrow, draftYear >= maxYear && styles.arrowDisabled]}
+              onPress={() => setDraftYear((value) => value + 1)}
+              disabled={draftYear >= maxYear}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel="다음 연도"
+            >
+              <Text style={styles.pickerYearArrowText}>›</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.pickerGrid}>
+            {Array.from({ length: 12 }, (_, index) => index + 1).map((value) => {
+              const active = draftYear === year && value === month;
+              const disabled = value > maxMonth;
+              const hasStories = storyMonths.has(`${draftYear}-${value - 1}`);
+
+              return (
+                <Pressable
+                  key={value}
+                  disabled={disabled}
+                  onPress={() => {
+                    onSelect(draftYear, value);
+                    onClose();
+                  }}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active, disabled }}
+                  style={[
+                    styles.pickerMonth,
+                    active && styles.pickerMonthActive,
+                    disabled && styles.pickerMonthDisabled,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.pickerMonthText,
+                      active && styles.pickerMonthTextActive,
+                      disabled && styles.pickerMonthTextDisabled,
+                    ]}
+                  >
+                    {value}월
+                  </Text>
+                  {hasStories && !disabled ? (
+                    <View style={[styles.pickerMonthDot, active && styles.pickerMonthDotActive]} />
+                  ) : (
+                    <View style={styles.pickerMonthDotPlaceholder} />
+                  )}
+                </Pressable>
+              );
+            })}
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
 
@@ -1384,14 +1491,7 @@ export default function BagStackScreen() {
   const now = useMemo(() => new Date(), []);
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1); // 1~12
-
-  const years = useMemo(() => {
-    const list: number[] = [];
-    for (let year = now.getFullYear(); year >= SHELF_START_YEAR; year -= 1) {
-      list.push(year);
-    }
-    return list;
-  }, [now]);
+  const [isPeriodPickerOpen, setIsPeriodPickerOpen] = useState(false);
 
   const dayStoryMap = useMemo(() => buildDayStoryMap(stories), [stories]);
   const storyMonths = useMemo(() => collectStoryMonths(stories), [stories]);
@@ -1400,17 +1500,32 @@ export default function BagStackScreen() {
     [selectedYear, selectedMonth, dayStoryMap],
   );
 
-  // 선택한 연도가 올해면 다음 달(미래)은 고르지 못하게 막는다.
-  const maxMonthForYear =
-    selectedYear === now.getFullYear() ? now.getMonth() + 1 : 12;
-  const selectYear = useCallback(
-    (year: number) => {
-      setSelectedYear(year);
-      const cap = year === now.getFullYear() ? now.getMonth() + 1 : 12;
-      setSelectedMonth((month) => Math.min(month, cap));
-    },
-    [now],
+  // 첫 달(2020년 1월)보다 앞이나 이번 달보다 뒤로는 넘어가지 않는다.
+  const canGoPrevMonth = !(selectedYear === SHELF_START_YEAR && selectedMonth === 1);
+  const canGoNextMonth = !(
+    selectedYear === now.getFullYear() && selectedMonth === now.getMonth() + 1
   );
+
+  const shiftMonth = useCallback(
+    (offset: number) => {
+      const next = new Date(selectedYear, selectedMonth - 1 + offset, 1);
+      const year = next.getFullYear();
+      const month = next.getMonth() + 1;
+
+      if (year < SHELF_START_YEAR) return;
+      if (year > now.getFullYear()) return;
+      if (year === now.getFullYear() && month > now.getMonth() + 1) return;
+
+      setSelectedYear(year);
+      setSelectedMonth(month);
+    },
+    [now, selectedMonth, selectedYear],
+  );
+
+  const selectPeriod = useCallback((year: number, month: number) => {
+    setSelectedYear(year);
+    setSelectedMonth(month);
+  }, []);
 
   // 책장을 열 때마다 저장된 이야기를 다시 불러와 최신 상태로 채운다.
   useEffect(() => {
@@ -1418,7 +1533,7 @@ export default function BagStackScreen() {
     let active = true;
     loadStories(user.id)
       .then((loaded) => {
-        if (active) setStories(loaded);
+        if (active) setStories(withSampleStories(loaded));
       })
       .catch((error) => console.warn("이야기 책장 불러오기 실패", error));
     return () => {
@@ -1999,85 +2114,57 @@ export default function BagStackScreen() {
 
       {showHistory ? (
         <View style={styles.shelfWrap}>
-          <View style={styles.yearStripWrap}>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.yearStrip}
+          <View style={styles.periodBar}>
+            <Pressable
+              style={[styles.periodArrow, !canGoPrevMonth && styles.arrowDisabled]}
+              onPress={() => shiftMonth(-1)}
+              disabled={!canGoPrevMonth}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel="이전 달 보기"
             >
-              {years.map((year) => {
-                const active = year === selectedYear;
-                return (
-                  <Pressable
-                    key={year}
-                    onPress={() => selectYear(year)}
-                    style={[styles.yearChip, active && styles.yearChipActive]}
-                  >
-                    <Text style={[styles.yearChipText, active && styles.yearChipTextActive]}>
-                      {year}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
+              <Text style={styles.periodArrowText}>‹</Text>
+            </Pressable>
+
+            <Pressable
+              style={styles.periodPill}
+              onPress={() => setIsPeriodPickerOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel={`${selectedYear}년 ${selectedMonth}월. 다른 연도와 달 고르기`}
+            >
+              <Text style={styles.periodPillText}>{shelf.title}</Text>
+              <Text style={styles.periodPillCaret}>▾</Text>
+            </Pressable>
+
+            <Pressable
+              style={[styles.periodArrow, !canGoNextMonth && styles.arrowDisabled]}
+              onPress={() => shiftMonth(1)}
+              disabled={!canGoNextMonth}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel="다음 달 보기"
+            >
+              <Text style={styles.periodArrowText}>›</Text>
+            </Pressable>
           </View>
 
-          <View style={styles.monthStripWrap}>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.monthStrip}
-            >
-              {Array.from({ length: 12 }, (_, index) => index + 1).map((month) => {
-                const active = month === selectedMonth;
-                const disabled = month > maxMonthForYear;
-                const hasStories = storyMonths.has(`${selectedYear}-${month - 1}`);
-                return (
-                  <Pressable
-                    key={month}
-                    disabled={disabled}
-                    onPress={() => setSelectedMonth(month)}
-                    style={[
-                      styles.monthChip,
-                      active && styles.monthChipActive,
-                      disabled && styles.monthChipDisabled,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.monthChipText,
-                        active && styles.monthChipTextActive,
-                        disabled && styles.monthChipTextDisabled,
-                      ]}
-                    >
-                      {month}월
-                    </Text>
-                    {hasStories ? (
-                      <View style={[styles.monthDot, active && styles.monthDotActive]} />
-                    ) : (
-                      <View style={styles.monthDotPlaceholder} />
-                    )}
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          </View>
+          <Text style={styles.periodCaption}>
+            {shelf.filledCount > 0 ? `${shelf.filledCount}편의 이야기` : "아직 비어 있어요"}
+          </Text>
 
-          <ScrollView
-            style={styles.history}
-            contentContainerStyle={styles.historyContent}
-            showsVerticalScrollIndicator={false}
-          >
+          <View style={styles.shelfArea}>
             <MonthShelf shelf={shelf} onSelect={handleSelectDay} />
-            <View style={styles.shelfLegend}>
-              {STORY_EMOTIONS.map((meta) => (
-                <View key={meta.key} style={styles.legendItem}>
-                  <View style={[styles.legendDot, { backgroundColor: meta.color }]} />
-                  <Text style={styles.legendLabel}>{meta.label}</Text>
-                </View>
-              ))}
-            </View>
-          </ScrollView>
+          </View>
+
+          <View style={styles.shelfLegend}>
+            {STORY_EMOTIONS.map((meta) => (
+              <View key={meta.key} style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: meta.color }]} />
+                <Text style={styles.legendLabel}>{meta.label}</Text>
+              </View>
+            ))}
+          </View>
+
           {emptyHint ? (
             <View style={styles.hintToast} pointerEvents="none">
               <Text style={styles.hintToastText}>{emptyHint}</Text>
@@ -2129,6 +2216,15 @@ export default function BagStackScreen() {
         </>
       )}
 
+      <PeriodPickerSheet
+        visible={isPeriodPickerOpen}
+        year={selectedYear}
+        month={selectedMonth}
+        today={now}
+        storyMonths={storyMonths}
+        onSelect={selectPeriod}
+        onClose={() => setIsPeriodPickerOpen(false)}
+      />
       <StoryReaderModal story={readerStory} onClose={() => setReaderStory(null)} />
     </View>
   );
@@ -2918,122 +3014,173 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Brand.secondary,
   },
-  yearStripWrap: {
-    backgroundColor: Brand.secondary,
+  // 연/월 선택: 가로 스크롤 스트립 두 줄 대신 화살표 + 현재 월 한 줄로 통합했다.
+  periodBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingTop: 10,
   },
-  yearStrip: {
-    paddingHorizontal: HISTORY_H_PADDING,
-    paddingTop: 12,
-    paddingBottom: 4,
-    gap: 8,
-  },
-  yearChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 14,
+  periodArrow: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: Brand.surface,
     borderWidth: 1,
     borderColor: Brand.border,
   },
-  yearChipActive: {
-    backgroundColor: Brand.text,
-    borderColor: Brand.text,
+  periodArrowText: {
+    color: Brand.text,
+    fontSize: 22,
+    lineHeight: 25,
+    fontWeight: "800",
   },
-  yearChipText: {
-    color: Brand.muted,
+  arrowDisabled: {
+    opacity: 0.3,
+  },
+  periodPill: {
+    minWidth: 150,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    height: 38,
+    paddingHorizontal: 16,
+    borderRadius: 19,
+    backgroundColor: Brand.text,
+  },
+  periodPillText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "900",
+    letterSpacing: -0.3,
+  },
+  periodPillCaret: {
+    color: "rgba(255,255,255,0.72)",
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  periodCaption: {
+    marginTop: 7,
+    marginBottom: 10,
+    textAlign: "center",
+    color: "#8E7BB8",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  pickerBackdrop: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 28,
+    backgroundColor: "rgba(26,22,34,0.5)",
+  },
+  pickerCard: {
+    width: "100%",
+    maxWidth: 360,
+    borderRadius: 24,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 16,
+    backgroundColor: Brand.surfaceElevated,
+    borderWidth: 1,
+    borderColor: Brand.border,
+    shadowColor: Brand.text,
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 12,
+  },
+  pickerYearRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 4,
+    paddingVertical: 10,
+  },
+  pickerYearArrow: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pickerYearArrowText: {
+    color: Brand.text,
+    fontSize: 24,
+    lineHeight: 27,
+    fontWeight: "800",
+  },
+  pickerYearText: {
+    color: Brand.text,
+    fontSize: 19,
+    fontWeight: "900",
+    letterSpacing: -0.3,
+  },
+  pickerGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 4,
+  },
+  pickerMonth: {
+    width: "23%",
+    height: 52,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    backgroundColor: Brand.surface,
+    borderWidth: 1,
+    borderColor: Brand.border,
+  },
+  pickerMonthActive: {
+    backgroundColor: "#EEE7FA",
+    borderColor: "#A88FE0",
+    borderWidth: 2,
+  },
+  pickerMonthDisabled: {
+    opacity: 0.35,
+  },
+  pickerMonthText: {
+    color: Brand.text,
     fontSize: 14,
     fontWeight: "800",
   },
-  yearChipTextActive: {
-    color: "#FFFFFF",
-  },
-  monthStripWrap: {
-    backgroundColor: Brand.secondary,
-  },
-  monthStrip: {
-    paddingHorizontal: HISTORY_H_PADDING,
-    paddingTop: 8,
-    paddingBottom: 12,
-    gap: 7,
-  },
-  monthChip: {
-    minWidth: 46,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 13,
-    backgroundColor: Brand.surface,
-    borderWidth: 1,
-    borderColor: Brand.border,
-    alignItems: "center",
-    gap: 4,
-  },
-  monthChipActive: {
-    backgroundColor: "#EEE7FA",
-    borderColor: "#C9B8EC",
-  },
-  monthChipDisabled: {
-    opacity: 0.4,
-  },
-  monthChipText: {
-    color: Brand.text,
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  monthChipTextActive: {
+  pickerMonthTextActive: {
     color: "#5C4B86",
   },
-  monthChipTextDisabled: {
+  pickerMonthTextDisabled: {
     color: Brand.muted,
   },
-  monthDot: {
+  pickerMonthDot: {
     width: 5,
     height: 5,
     borderRadius: 3,
     backgroundColor: "#B4A0E0",
   },
-  monthDotActive: {
+  pickerMonthDotActive: {
     backgroundColor: "#7C63B6",
   },
-  monthDotPlaceholder: {
+  pickerMonthDotPlaceholder: {
     width: 5,
     height: 5,
   },
-  history: {
+  // 책장은 스크롤 없이 남은 세로 공간을 그대로 채운다.
+  shelfArea: {
     flex: 1,
-    backgroundColor: Brand.secondary,
-  },
-  historyContent: {
     paddingHorizontal: HISTORY_H_PADDING,
-    paddingTop: 4,
-    paddingBottom: 28,
-  },
-  monthShelf: {
-    marginBottom: 22,
-  },
-  monthHeader: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    justifyContent: "space-between",
-    marginBottom: 10,
-    paddingHorizontal: 2,
-  },
-  monthTitle: {
-    color: Brand.text,
-    fontSize: 17,
-    fontWeight: "900",
-    letterSpacing: -0.4,
-  },
-  monthCount: {
-    color: "#8E7BB8",
-    fontSize: 12,
-    fontWeight: "800",
   },
   shelfBoard: {
+    flex: 1,
     backgroundColor: "#2A2633",
     borderRadius: 18,
     paddingHorizontal: SHELF_BOARD_PADDING,
-    paddingTop: 14,
-    paddingBottom: 6,
+    paddingTop: 12,
+    paddingBottom: 8,
     borderWidth: 1,
     borderColor: "#3B3547",
     shadowColor: "#241F2E",
@@ -3042,13 +3189,15 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
   },
   shelfRow: {
-    marginBottom: 12,
+    flex: 1,
+    justifyContent: "flex-end",
+    paddingBottom: 8,
   },
   shelfSpines: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "flex-end",
     columnGap: SPINE_GAP,
-    minHeight: 110,
   },
   shelfLedge: {
     height: 6,
@@ -3080,18 +3229,20 @@ const styles = StyleSheet.create({
     opacity: 0.92,
   },
   spineDay: {
-    marginBottom: 4,
-    color: "rgba(255,255,255,0.9)",
-    fontSize: 9,
+    marginBottom: 5,
+    color: "rgba(255,255,255,0.92)",
+    fontSize: 10,
     fontWeight: "800",
   },
   shelfLegend: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 14,
+    columnGap: 14,
+    rowGap: 6,
     justifyContent: "center",
-    marginTop: 6,
-    paddingHorizontal: 8,
+    paddingTop: 12,
+    paddingBottom: 6,
+    paddingHorizontal: 12,
   },
   legendItem: {
     flexDirection: "row",
@@ -3109,8 +3260,9 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   hintToast: {
+    // 하단 감정 범례를 가리지 않도록 책장 위쪽에 띄운다.
     position: "absolute",
-    bottom: 24,
+    bottom: 72,
     alignSelf: "center",
     backgroundColor: "rgba(42,38,51,0.94)",
     paddingHorizontal: 18,
