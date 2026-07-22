@@ -4,9 +4,20 @@ import base64
 import json
 import os
 import re
+from pathlib import Path
 from typing import Any
 
 import requests
+
+# 저장소 루트의 .env를 읽어 GEMINI_API_KEY 등을 불러온다.
+# 덕분에 터미널에서 매번 export 하지 않아도 된다.
+# (python-dotenv가 없으면 기존처럼 셸 환경 변수만 사용한다.)
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+except ImportError:  # pragma: no cover - 선택적 의존성
+    pass
 
 
 # 구조화 출력(responseSchema)과 이미지 생성(responseModalities, imageConfig)은
@@ -19,12 +30,33 @@ IMAGE_MODEL = os.environ.get("GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image")
 MAX_REFERENCE_IMAGES = 4
 MAX_REFERENCE_IMAGE_BYTES = 8 * 1024 * 1024
 
-MOOD_GUIDES = {
-    "warm": "따뜻하고 포근한 하루. 잔잔한 감동과 긍정적인 여운을 남긴다.",
-    "adventure": "명랑하고 즐거운 모험. 물건들이 협력하며 작은 사건을 해결한다.",
-    "comedy": "엉뚱하고 유쾌한 코미디. 예상 밖의 행동과 사랑스러운 반전을 넣는다.",
-    "mystery": "해로운 신비감이 있는 미스터리. 무서운 표현 대신 호기심을 자극한다.",
+# 이야기의 톤은 사용자가 고른 '오늘의 기분'에서 그대로 가져온다.
+# (별도의 톤 선택 질문은 없앴다. 기분을 이미 물어봤으므로 한 번 더 묻지 않는다.)
+EMOTION_GUIDES = {
+    "happy": "밝고 즐거운 기분. 웃음이 나는 순간을 가볍고 경쾌하게 담는다.",
+    "excited": "두근거리고 기대되는 기분. 들뜬 마음이 문장에서 느껴지게 한다.",
+    "calm": "잔잔하고 포근한 기분. 조용한 여운을 남긴다.",
+    "sad": "조금 쓸쓸한 기분. 담담하게 쓰되 마지막에는 작은 위로를 남긴다.",
+    "angry": "속상하고 답답했던 기분. 격한 표현 대신 솔직하게 쓰고, 끝에서는 누그러지게 한다.",
+    "tired": "지치고 노곤한 기분. 무겁지 않게, 하루를 다독이듯 마무리한다.",
 }
+
+DEFAULT_EMOTION = "calm"
+
+# 기분 선택이 없던 시절에 만들어진 요청(mood만 보내는 앱)을 위한 대응표.
+MOOD_TO_EMOTION = {
+    "warm": "calm",
+    "adventure": "excited",
+    "comedy": "happy",
+    "mystery": "tired",
+}
+
+
+def _emotion_guide(payload: dict[str, Any]) -> str:
+    emotion = str(payload.get("emotion") or "").strip()
+    if emotion not in EMOTION_GUIDES:
+        emotion = MOOD_TO_EMOTION.get(str(payload.get("mood") or ""), DEFAULT_EMOTION)
+    return EMOTION_GUIDES[emotion]
 
 
 def _api_key() -> str:
@@ -79,31 +111,36 @@ def _object_context(objects: list[dict[str, Any]]) -> str:
 def _generate_story(payload: dict[str, Any]) -> dict[str, str]:
     objects = payload["objects"]
     daily_moment = str(payload.get("dailyMoment") or "").strip()
-    mood = str(payload.get("mood") or "warm")
     creativity = int(payload.get("creativity") or 5)
     creativity_ratio = (creativity - 1) / 8
     object_context = _object_context(objects)
-    mood_guide = MOOD_GUIDES.get(mood, MOOD_GUIDES["warm"])
+    emotion_guide = _emotion_guide(payload)
 
     prompt = f"""
 너는 일상의 작은 순간을 그림일기로 만드는 한국어 동화 작가야.
-아래 사용자의 세 가지 답변과 오늘 수집한 물건을 반드시 모두 활용해 하나의 완결된 이야기를 작성해.
+사용자가 직접 쓴 오늘의 이야기를 중심으로, 짧고 완결된 그림일기를 작성해.
 
-[사용자의 답변]
-1. 오늘 어떤 일이 있었나요?: {daily_moment or '답변 없음 - 물건과 장소로 자연스럽게 유추'}
-2. 어떤 이야기로 만들까요?: {mood_guide}
-3. 상상을 얼마나 더할까요?: 9단계 중 {creativity}단계
-   - 1에 가까울수록 실제 하루를 충실히 기록하고, 9에 가까울수록 물건이 말하고 세계가 변하는 판타지를 크게 더해.
-   - 현재 상상 비율: {creativity_ratio:.2f}
+[오늘 있었던 일 — 이야기의 중심]
+{daily_moment or '(사용자가 쓴 내용 없음 - 아래 물건과 장소만으로 하루를 자연스럽게 상상해서 써 줘)'}
 
-[오늘 수집한 물건]
+[오늘의 기분]
+{emotion_guide}
+
+[상상을 더하는 정도]
+9단계 중 {creativity}단계 (현재 상상 비율 {creativity_ratio:.2f})
+- 1에 가까울수록 실제 하루를 그대로 기록하고, 9에 가까울수록 물건이 말하고 세계가 변하는 판타지를 크게 더해.
+
+[함께한 물건 — 배경에 자연스럽게 녹이기]
 {object_context}
 
 [작성 규칙]
+- 본문은 5~6문장으로 짧게 써. 문단을 나누지 말고 하나의 흐름으로 이어 줘.
+- 사용자가 쓴 '오늘 있었던 일'이 이야기의 뼈대야. 사건도 감정도 그 내용에서 출발해.
+- 물건은 주인공이 아니라 그 순간을 함께한 존재야. 목록처럼 나열하지 말고 문장 속에 자연스럽게 스며들게 해.
+- 5~6문장 안에 다 담기지 않으면 모든 물건을 억지로 넣지 않아도 돼. 이야기의 흐름이 우선이야.
+- 장소 이름은 배경 참고용이야. 꼭 필요할 때 한 번만 쓰고, 물건마다 반복해서 붙이지 마.
+- 오늘의 기분이 문장의 온도로 드러나게 해.
 - 제목은 24자 이내의 자연스러운 한국어로 작성해.
-- 본문은 그림일기에 어울리는 3~4개 문단, 공백 포함 450~700자로 작성해.
-- 물건을 나열만 하지 말고, 각 물건이 이야기의 사건이나 해결에 의미 있게 기여하게 해.
-- 사용자가 입력한 실제 사건을 존중하되, 선택한 상상 단계만큼만 각색해.
 - 어린이도 읽을 수 있게 폭력적이거나 무서운 내용, 실제 브랜드 폄하 표현은 피해.
 - 한국어 조사가 어색하지 않게 물건 이름을 자연스럽게 활용해.
 - JSON 외의 설명은 출력하지 마.

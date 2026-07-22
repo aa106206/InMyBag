@@ -55,7 +55,11 @@ class StoryObjectInput(BaseModel):
 
 class StoryGenerateInput(BaseModel):
     dailyMoment: str = Field(default="", max_length=500)
-    mood: Literal["warm", "adventure", "comedy", "mystery"] = "warm"
+    # 이야기 톤은 사용자가 고른 '오늘의 기분'에서 파생된다.
+    # 기본값을 두지 않아야, emotion을 못 받았을 때 아래 mood로 정확히 폴백된다.
+    emotion: Literal["happy", "excited", "calm", "sad", "angry", "tired"] | None = None
+    # mood는 톤 선택 질문이 있던 구버전 앱과의 호환용이다. emotion이 없을 때만 쓰인다.
+    mood: Literal["warm", "adventure", "comedy", "mystery"] | None = None
     creativity: int = Field(default=5, ge=1, le=9)
     objects: list[StoryObjectInput] = Field(min_length=1, max_length=10)
 
