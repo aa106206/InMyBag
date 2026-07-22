@@ -44,9 +44,7 @@ import {
   segmentImageWithSam2,
 } from "@/services/sam2";
 
-const DEFAULT_OBJECT_SIZE = 92;
-const MAX_OBJECT_SIZE = 132;
-const MIN_OBJECT_SIZE = 72;
+const TARGET_OBJECT_SIZE = 112;
 const H_PADDING = 16;
 const WALL_THICKNESS = 60;
 const FIXED_TIMESTEP = 1000 / 60;
@@ -397,14 +395,11 @@ const historyItems: BagHistoryItem[] = [
 
 function getObjectDisplaySize(width?: number, height?: number): ObjectSize {
   if (!width || !height || width <= 0 || height <= 0) {
-    return { width: DEFAULT_OBJECT_SIZE, height: DEFAULT_OBJECT_SIZE };
+    return { width: TARGET_OBJECT_SIZE, height: TARGET_OBJECT_SIZE };
   }
 
   const longestSide = Math.max(width, height);
-  const shortestSide = Math.min(width, height);
-  const maxScale = MAX_OBJECT_SIZE / longestSide;
-  const minScale = MIN_OBJECT_SIZE / shortestSide;
-  const scale = Math.max(maxScale, minScale);
+  const scale = TARGET_OBJECT_SIZE / longestSide;
 
   return {
     width: Math.round(width * scale),
@@ -522,8 +517,8 @@ function keepBodyInsideWorld(body: Matter.Body, worldSize: WorldSize) {
   }
 
   const size = (body as PhotoBody).photoSize ?? {
-    width: DEFAULT_OBJECT_SIZE,
-    height: DEFAULT_OBJECT_SIZE,
+    width: TARGET_OBJECT_SIZE,
+    height: TARGET_OBJECT_SIZE,
   };
 
   if (
