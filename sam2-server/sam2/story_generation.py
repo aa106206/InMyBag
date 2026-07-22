@@ -9,9 +9,13 @@ from typing import Any
 import requests
 
 
+# 구조화 출력(responseSchema)과 이미지 생성(responseModalities, imageConfig)은
+# v1beta 서피스에서 지원됩니다. v1으로 보내면 해당 필드를 Unknown name으로 거부해
+# 400 Bad Request가 발생하므로 반드시 v1beta를 사용합니다.
 GEMINI_API_ROOT = "https://generativelanguage.googleapis.com/v1beta/models"
+# 모델 ID는 환경 변수로 재정의할 수 있게 해, 코드 수정 없이 교체할 수 있습니다.
 STORY_MODEL = os.environ.get("GEMINI_STORY_MODEL", "gemini-2.5-flash")
-IMAGE_MODEL = os.environ.get("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image")
+IMAGE_MODEL = os.environ.get("GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image")
 MAX_REFERENCE_IMAGES = 4
 MAX_REFERENCE_IMAGE_BYTES = 8 * 1024 * 1024
 
@@ -33,7 +37,8 @@ def _api_key() -> str:
 
 
 def _model_url(model: str) -> str:
-    return f"{GEMINI_API_ROOT}/{model}:generateContent?key={_api_key()}"
+    normalized_model = model.removeprefix("models/")
+    return f"{GEMINI_API_ROOT}/{normalized_model}:generateContent?key={_api_key()}"
 
 
 def _response_parts(data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -193,8 +198,11 @@ def _generate_illustration(
     body = {
         "contents": [{"parts": parts}],
         "generationConfig": {
-            "responseModalities": ["TEXT", "IMAGE"],
-            "imageConfig": {"aspectRatio": "4:3"},
+            "responseModalities": ["IMAGE"],
+            "imageConfig": {
+                "aspectRatio": "4:3",
+                "imageSize": "1K",
+            },
         },
     }
     response = requests.post(_model_url(IMAGE_MODEL), json=body, timeout=150)

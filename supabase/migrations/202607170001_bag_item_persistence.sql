@@ -6,7 +6,10 @@ alter table public.bag_items
   add column if not exists width integer,
   add column if not exists height integer,
   add column if not exists object_label text,
-  add column if not exists location_name text;
+  add column if not exists note text,
+  add column if not exists location_name text,
+  add column if not exists location_latitude double precision,
+  add column if not exists location_longitude double precision;
 
 alter table public.bag_items enable row level security;
 

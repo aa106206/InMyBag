@@ -2,11 +2,12 @@ import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import { Accelerometer } from "expo-sensors";
 import Matter, { Bodies, Body, Engine, World } from "matter-js";
-import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   DeviceEventEmitter,
+  Dimensions,
   Image,
   KeyboardAvoidingView,
   LayoutChangeEvent,
@@ -42,6 +43,13 @@ import {
   Sam2SegmentResult,
   segmentImageWithSam2,
 } from "@/services/sam2";
+import {
+  EMOTION_META,
+  loadStories,
+  resolveEmotion,
+  STORY_EMOTIONS,
+  type GeneratedStory,
+} from "@/services/stories";
 
 const DEFAULT_OBJECT_SIZE = 92;
 const MAX_OBJECT_SIZE = 132;
@@ -58,20 +66,106 @@ type PhotoLocation = {
   longitude: number | null;
 };
 
-type HistoryPhoto = {
-  id: string;
-  uri: string;
-  left: `${number}%`;
-  top: `${number}%`;
-  size: number;
-  rotate: string;
+// 이야기 책장: 하루에 한 편씩 만들어진 그림일기를 '책등'으로 꽂아 둔다.
+// 책등 색은 그날 사용자가 고른 '감정'에 따라 달라진다.
+// (감정을 고르기 전에 만든 예전 이야기는 이야기 톤으로 감정을 추정한다.)
+function storyTheme(story: GeneratedStory) {
+  return EMOTION_META[resolveEmotion(story)];
+}
+
+type ShelfDay = {
+  day: number;
+  dateLabel: string;
+  story: GeneratedStory | null;
 };
 
-type BagHistoryItem = {
-  id: string;
-  date: string;
-  photos: HistoryPhoto[];
+type MonthShelfData = {
+  key: string;
+  year: number;
+  month: number;
+  title: string;
+  filledCount: number;
+  days: ShelfDay[];
 };
+
+const SHELF_START_YEAR = 2020;
+
+// 하루에 한 편, 그날의 마지막 이야기를 'Y-M-D' 키로 정리한다.
+function buildDayStoryMap(stories: GeneratedStory[]): Map<string, GeneratedStory> {
+  const latestByDay = new Map<string, GeneratedStory>();
+  for (const story of stories) {
+    const date = new Date(story.createdAt);
+    if (Number.isNaN(date.getTime())) continue;
+    const dayKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+    const prev = latestByDay.get(dayKey);
+    if (!prev || new Date(story.createdAt) > new Date(prev.createdAt)) {
+      latestByDay.set(dayKey, story);
+    }
+  }
+  return latestByDay;
+}
+
+// 이야기가 하나라도 있는 달('Y-M')을 표시해, 월 선택 칩에 점을 찍는다.
+function collectStoryMonths(stories: GeneratedStory[]): Set<string> {
+  const months = new Set<string>();
+  for (const story of stories) {
+    const date = new Date(story.createdAt);
+    if (Number.isNaN(date.getTime())) continue;
+    months.add(`${date.getFullYear()}-${date.getMonth()}`);
+  }
+  return months;
+}
+
+// 특정 연·월(0-based) 하나의 책장을 만든다.
+function buildShelfForMonth(
+  year: number,
+  month0: number,
+  dayMap: Map<string, GeneratedStory>,
+): MonthShelfData {
+  const daysInMonth = new Date(year, month0 + 1, 0).getDate();
+  const days: ShelfDay[] = [];
+  let filledCount = 0;
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const story = dayMap.get(`${year}-${month0}-${day}`) ?? null;
+    if (story) filledCount += 1;
+    days.push({ day, dateLabel: `${month0 + 1}월 ${day}일`, story });
+  }
+  return {
+    key: `${year}-${month0}`,
+    year,
+    month: month0 + 1,
+    title: `${year}년 ${month0 + 1}월`,
+    filledCount,
+    days,
+  };
+}
+
+// 책등 높이를 날짜별로 살짝 다르게 해 실제 책장처럼 보이게 한다.
+function spineHeight(day: number, filled: boolean) {
+  if (!filled) return 94;
+  return 98 + [0, 7, 3, 10, 5, 2][day % 6];
+}
+
+function formatReaderDate(iso: string) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일`;
+}
+
+const SPINES_PER_ROW = 10;
+const SPINE_GAP = 5;
+const SHELF_BOARD_PADDING = 14;
+const HISTORY_H_PADDING = 14;
+const SPINE_WIDTH = Math.max(
+  16,
+  Math.floor(
+    (Dimensions.get("window").width -
+      HISTORY_H_PADDING * 2 -
+      SHELF_BOARD_PADDING * 2 -
+      SPINE_GAP * (SPINES_PER_ROW - 1)) /
+      SPINES_PER_ROW,
+  ),
+);
 
 type ObjectSize = {
   width: number;
@@ -111,288 +205,6 @@ type Rect = {
   height: number;
 };
 
-const historyItems: BagHistoryItem[] = [
-  {
-    id: "2026-06-17",
-    date: "6/17",
-    photos: [
-      {
-        id: "camera",
-        uri: "https://images.unsplash.com/photo-1516035069371-29a1b244cc32?w=500",
-        left: "12%",
-        top: "16%",
-        size: 54,
-        rotate: "-8deg",
-      },
-      {
-        id: "coffee",
-        uri: "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=500",
-        left: "47%",
-        top: "31%",
-        size: 48,
-        rotate: "9deg",
-      },
-      {
-        id: "notebook",
-        uri: "https://images.unsplash.com/photo-1517842645767-c639042777db?w=500",
-        left: "27%",
-        top: "58%",
-        size: 58,
-        rotate: "4deg",
-      },
-    ],
-  },
-  {
-    id: "2026-06-05",
-    date: "6/5",
-    photos: [
-      {
-        id: "tablet",
-        uri: "https://images.unsplash.com/photo-1544244015-0df4b3ffc6b0?w=500",
-        left: "16%",
-        top: "18%",
-        size: 58,
-        rotate: "6deg",
-      },
-      {
-        id: "wallet",
-        uri: "https://images.unsplash.com/photo-1627123424574-724758594e93?w=500",
-        left: "50%",
-        top: "40%",
-        size: 48,
-        rotate: "-10deg",
-      },
-    ],
-  },
-  {
-    id: "2026-06-04",
-    date: "6/4",
-    photos: [
-      {
-        id: "shoes",
-        uri: "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=500",
-        left: "10%",
-        top: "24%",
-        size: 60,
-        rotate: "-7deg",
-      },
-      {
-        id: "bottle",
-        uri: "https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=500",
-        left: "54%",
-        top: "20%",
-        size: 46,
-        rotate: "8deg",
-      },
-      {
-        id: "watch",
-        uri: "https://images.unsplash.com/photo-1434493789847-2f02dc6ca35d?w=500",
-        left: "34%",
-        top: "58%",
-        size: 50,
-        rotate: "12deg",
-      },
-    ],
-  },
-  {
-    id: "2026-05-28",
-    date: "5/28",
-    photos: [
-      {
-        id: "headphones",
-        uri: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500",
-        left: "14%",
-        top: "18%",
-        size: 56,
-        rotate: "10deg",
-      },
-      {
-        id: "book",
-        uri: "https://images.unsplash.com/photo-1519682337058-a94d519337bc?w=500",
-        left: "45%",
-        top: "47%",
-        size: 58,
-        rotate: "-5deg",
-      },
-    ],
-  },
-  {
-    id: "2026-05-20",
-    date: "5/20",
-    photos: [
-      {
-        id: "sunglasses",
-        uri: "https://images.unsplash.com/photo-1511499767150-a48a237f0083?w=500",
-        left: "18%",
-        top: "24%",
-        size: 50,
-        rotate: "-12deg",
-      },
-      {
-        id: "pouch",
-        uri: "https://images.unsplash.com/photo-1590874103328-eac38a683ce7?w=500",
-        left: "50%",
-        top: "44%",
-        size: 58,
-        rotate: "7deg",
-      },
-    ],
-  },
-  {
-    id: "2026-05-11",
-    date: "5/11",
-    photos: [
-      {
-        id: "keys",
-        uri: "https://images.unsplash.com/photo-1582139329536-e7284fece509?w=500",
-        left: "16%",
-        top: "44%",
-        size: 48,
-        rotate: "9deg",
-      },
-      {
-        id: "earbuds",
-        uri: "https://images.unsplash.com/photo-1606220588913-b3aacb4d2f46?w=500",
-        left: "50%",
-        top: "22%",
-        size: 52,
-        rotate: "-7deg",
-      },
-    ],
-  },
-  {
-    id: "2026-05-03",
-    date: "5/3",
-    photos: [
-      {
-        id: "tablet",
-        uri: "https://images.unsplash.com/photo-1544244015-0df4b3ffc6b0?w=500",
-        left: "14%",
-        top: "18%",
-        size: 56,
-        rotate: "-6deg",
-      },
-      {
-        id: "coffee",
-        uri: "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=500",
-        left: "48%",
-        top: "40%",
-        size: 50,
-        rotate: "10deg",
-      },
-    ],
-  },
-  {
-    id: "2026-04-26",
-    date: "4/26",
-    photos: [
-      {
-        id: "notebook",
-        uri: "https://images.unsplash.com/photo-1517842645767-c639042777db?w=500",
-        left: "12%",
-        top: "24%",
-        size: 60,
-        rotate: "7deg",
-      },
-      {
-        id: "wallet",
-        uri: "https://images.unsplash.com/photo-1627123424574-724758594e93?w=500",
-        left: "52%",
-        top: "47%",
-        size: 48,
-        rotate: "-11deg",
-      },
-    ],
-  },
-  {
-    id: "2026-04-19",
-    date: "4/19",
-    photos: [
-      {
-        id: "camera",
-        uri: "https://images.unsplash.com/photo-1516035069371-29a1b244cc32?w=500",
-        left: "16%",
-        top: "18%",
-        size: 54,
-        rotate: "8deg",
-      },
-      {
-        id: "sunglasses",
-        uri: "https://images.unsplash.com/photo-1511499767150-a48a237f0083?w=500",
-        left: "48%",
-        top: "52%",
-        size: 52,
-        rotate: "-9deg",
-      },
-    ],
-  },
-  {
-    id: "2026-04-12",
-    date: "4/12",
-    photos: [
-      {
-        id: "shoes",
-        uri: "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=500",
-        left: "12%",
-        top: "42%",
-        size: 58,
-        rotate: "-8deg",
-      },
-      {
-        id: "bottle",
-        uri: "https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=500",
-        left: "54%",
-        top: "24%",
-        size: 48,
-        rotate: "7deg",
-      },
-    ],
-  },
-  {
-    id: "2026-04-04",
-    date: "4/4",
-    photos: [
-      {
-        id: "headphones",
-        uri: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=500",
-        left: "15%",
-        top: "18%",
-        size: 58,
-        rotate: "11deg",
-      },
-      {
-        id: "keys",
-        uri: "https://images.unsplash.com/photo-1582139329536-e7284fece509?w=500",
-        left: "48%",
-        top: "50%",
-        size: 46,
-        rotate: "-5deg",
-      },
-    ],
-  },
-  {
-    id: "2026-03-29",
-    date: "3/29",
-    photos: [
-      {
-        id: "book",
-        uri: "https://images.unsplash.com/photo-1519682337058-a94d519337bc?w=500",
-        left: "13%",
-        top: "20%",
-        size: 58,
-        rotate: "-7deg",
-      },
-      {
-        id: "pouch",
-        uri: "https://images.unsplash.com/photo-1590874103328-eac38a683ce7?w=500",
-        left: "52%",
-        top: "44%",
-        size: 54,
-        rotate: "9deg",
-      },
-    ],
-  },
-];
 
 function getObjectDisplaySize(width?: number, height?: number): ObjectSize {
   if (!width || !height || width <= 0 || height <= 0) {
@@ -1295,30 +1107,113 @@ function PhysicsPhoto({
   );
 }
 
-function HistoryCard({ item }: { item: BagHistoryItem }) {
+function BookSpine({ item, onPress }: { item: ShelfDay; onPress: () => void }) {
+  const filled = !!item.story;
+  const theme = item.story ? storyTheme(item.story) : null;
+  const height = spineHeight(item.day, filled);
+
   return (
-    <View style={styles.historyCard}>
-      <Text style={styles.historyDate}>{item.date}</Text>
-      <View style={styles.historyPreview}>
-        {item.photos.map((photo) => (
-          <View
-            key={photo.id}
-            style={[
-              styles.historyPhoto,
-              {
-                left: photo.left,
-                top: photo.top,
-                width: photo.size,
-                height: photo.size,
-                transform: [{ rotate: photo.rotate }],
-              },
-            ]}
-          >
-            <Image source={{ uri: photo.uri }} style={styles.historyImage} />
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={
+        filled ? `${item.dateLabel} 이야기 · ${theme?.label}` : `${item.dateLabel} 빈 자리`
+      }
+      style={[
+        styles.spine,
+        { width: SPINE_WIDTH, height, backgroundColor: filled ? theme!.color : "#413C4A" },
+        filled && styles.spineFilled,
+      ]}
+    >
+      {filled ? <View style={[styles.spineCap, { backgroundColor: theme!.cap }]} /> : null}
+      {filled ? <Text style={styles.spineDay}>{item.day}</Text> : null}
+    </Pressable>
+  );
+}
+
+function MonthShelf({
+  shelf,
+  onSelect,
+}: {
+  shelf: MonthShelfData;
+  onSelect: (day: ShelfDay) => void;
+}) {
+  const rows: ShelfDay[][] = [];
+  for (let index = 0; index < shelf.days.length; index += SPINES_PER_ROW) {
+    rows.push(shelf.days.slice(index, index + SPINES_PER_ROW));
+  }
+
+  return (
+    <View style={styles.monthShelf}>
+      <View style={styles.monthHeader}>
+        <Text style={styles.monthTitle}>{shelf.title}</Text>
+        <Text style={styles.monthCount}>
+          {shelf.filledCount > 0 ? `${shelf.filledCount}편의 이야기` : "아직 비어 있어요"}
+        </Text>
+      </View>
+      <View style={styles.shelfBoard}>
+        {rows.map((row, rowIndex) => (
+          <View key={rowIndex} style={styles.shelfRow}>
+            <View style={styles.shelfSpines}>
+              {row.map((day) => (
+                <BookSpine key={day.day} item={day} onPress={() => onSelect(day)} />
+              ))}
+            </View>
+            <View style={styles.shelfLedge} />
           </View>
         ))}
       </View>
     </View>
+  );
+}
+
+function StoryReaderModal({
+  story,
+  onClose,
+}: {
+  story: GeneratedStory | null;
+  onClose: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  if (!story) return null;
+
+  const theme = storyTheme(story);
+  const image = story.illustrationUrl || story.imageUrls?.[0];
+
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.readerBackdrop} onPress={onClose}>
+        <Pressable style={[styles.readerSheet, { paddingBottom: insets.bottom + 14 }]} onPress={() => {}}>
+          <View style={styles.readerHandle} />
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.readerScroll}>
+            {image ? <Image source={{ uri: image }} style={styles.readerImage} resizeMode="cover" /> : null}
+            <View style={styles.readerBody}>
+              <View style={styles.readerMetaRow}>
+                <View style={[styles.emotionChip, { backgroundColor: theme.color }]}>
+                  <Text style={styles.emotionChipText}>{theme.emoji} {theme.label}</Text>
+                </View>
+                <Text style={styles.readerDate}>{formatReaderDate(story.createdAt)}</Text>
+              </View>
+              <Text style={styles.readerTitle}>{story.title}</Text>
+              <View style={styles.readerDivider} />
+              <Text style={styles.readerText}>{story.body}</Text>
+              {story.itemLabels?.length ? (
+                <View style={styles.readerTags}>
+                  {story.itemLabels.slice(0, 6).map((label, index) => (
+                    <View key={`${label}-${index}`} style={styles.readerTag}>
+                      <Text style={styles.readerTagText}>#{label}</Text>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+            </View>
+          </ScrollView>
+          <Pressable style={styles.readerClose} onPress={onClose}>
+            <Text style={styles.readerCloseText}>책 덮기</Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
 
@@ -1346,6 +1241,70 @@ export default function BagStackScreen() {
   const [segmentedPreview, setSegmentedPreview] = useState<Sam2SegmentResult | null>(null);
   const [isWritingPhotoNote, setIsWritingPhotoNote] = useState(false);
   const [photoNote, setPhotoNote] = useState("");
+  const [stories, setStories] = useState<GeneratedStory[]>([]);
+  const [readerStory, setReaderStory] = useState<GeneratedStory | null>(null);
+  const [emptyHint, setEmptyHint] = useState<string | null>(null);
+  const now = useMemo(() => new Date(), []);
+  const [selectedYear, setSelectedYear] = useState(now.getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1); // 1~12
+
+  const years = useMemo(() => {
+    const list: number[] = [];
+    for (let year = now.getFullYear(); year >= SHELF_START_YEAR; year -= 1) {
+      list.push(year);
+    }
+    return list;
+  }, [now]);
+
+  const dayStoryMap = useMemo(() => buildDayStoryMap(stories), [stories]);
+  const storyMonths = useMemo(() => collectStoryMonths(stories), [stories]);
+  const shelf = useMemo(
+    () => buildShelfForMonth(selectedYear, selectedMonth - 1, dayStoryMap),
+    [selectedYear, selectedMonth, dayStoryMap],
+  );
+
+  // 선택한 연도가 올해면 다음 달(미래)은 고르지 못하게 막는다.
+  const maxMonthForYear =
+    selectedYear === now.getFullYear() ? now.getMonth() + 1 : 12;
+  const selectYear = useCallback(
+    (year: number) => {
+      setSelectedYear(year);
+      const cap = year === now.getFullYear() ? now.getMonth() + 1 : 12;
+      setSelectedMonth((month) => Math.min(month, cap));
+    },
+    [now],
+  );
+
+  // 책장을 열 때마다 저장된 이야기를 다시 불러와 최신 상태로 채운다.
+  useEffect(() => {
+    if (!showHistory || !user) return;
+    let active = true;
+    loadStories(user.id)
+      .then((loaded) => {
+        if (active) setStories(loaded);
+      })
+      .catch((error) => console.warn("이야기 책장 불러오기 실패", error));
+    return () => {
+      active = false;
+    };
+  }, [showHistory, user]);
+
+  // 빈 날짜를 누르면 잠깐 안내를 띄우고 자동으로 사라지게 한다.
+  useEffect(() => {
+    if (!emptyHint) return;
+    const timer = setTimeout(() => setEmptyHint(null), 1600);
+    return () => clearTimeout(timer);
+  }, [emptyHint]);
+
+  const handleSelectDay = useCallback((day: ShelfDay) => {
+    if (day.story) {
+      setEmptyHint(null);
+      setReaderStory(day.story);
+    } else {
+      setReaderStory(null);
+      setEmptyHint(`${day.dateLabel} · 아직 이야기가 없어요`);
+    }
+  }, []);
 
   const syncWalls = useCallback((width: number, height: number) => {
     if (width <= 0 || height <= 0) {
@@ -1851,7 +1810,7 @@ export default function BagStackScreen() {
       <View style={[styles.topBar, { paddingTop: insets.top + 12 }]}>
         <Image source={require("@/assets/images/SnapBag.png")} style={styles.logoImage} />
         <View style={styles.topCopy}>
-          <Text style={styles.topTitle}>{showHistory ? "가방 기록" : "내 가방"}</Text>
+          <Text style={styles.topTitle}>{showHistory ? "이야기 책장" : "내 가방"}</Text>
         </View>
         <Pressable
           style={[styles.modeToggle, showHistory ? styles.modeToggleActive : undefined]}
@@ -1862,17 +1821,92 @@ export default function BagStackScreen() {
       </View>
 
       {showHistory ? (
-        <ScrollView
-          style={styles.history}
-          contentContainerStyle={styles.historyContent}
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={styles.historyGrid}>
-            {historyItems.map((item) => (
-              <HistoryCard key={item.id} item={item} />
-            ))}
+        <View style={styles.shelfWrap}>
+          <View style={styles.yearStripWrap}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.yearStrip}
+            >
+              {years.map((year) => {
+                const active = year === selectedYear;
+                return (
+                  <Pressable
+                    key={year}
+                    onPress={() => selectYear(year)}
+                    style={[styles.yearChip, active && styles.yearChipActive]}
+                  >
+                    <Text style={[styles.yearChipText, active && styles.yearChipTextActive]}>
+                      {year}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
           </View>
-        </ScrollView>
+
+          <View style={styles.monthStripWrap}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.monthStrip}
+            >
+              {Array.from({ length: 12 }, (_, index) => index + 1).map((month) => {
+                const active = month === selectedMonth;
+                const disabled = month > maxMonthForYear;
+                const hasStories = storyMonths.has(`${selectedYear}-${month - 1}`);
+                return (
+                  <Pressable
+                    key={month}
+                    disabled={disabled}
+                    onPress={() => setSelectedMonth(month)}
+                    style={[
+                      styles.monthChip,
+                      active && styles.monthChipActive,
+                      disabled && styles.monthChipDisabled,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.monthChipText,
+                        active && styles.monthChipTextActive,
+                        disabled && styles.monthChipTextDisabled,
+                      ]}
+                    >
+                      {month}월
+                    </Text>
+                    {hasStories ? (
+                      <View style={[styles.monthDot, active && styles.monthDotActive]} />
+                    ) : (
+                      <View style={styles.monthDotPlaceholder} />
+                    )}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+
+          <ScrollView
+            style={styles.history}
+            contentContainerStyle={styles.historyContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <MonthShelf shelf={shelf} onSelect={handleSelectDay} />
+            <View style={styles.shelfLegend}>
+              {STORY_EMOTIONS.map((meta) => (
+                <View key={meta.key} style={styles.legendItem}>
+                  <View style={[styles.legendDot, { backgroundColor: meta.color }]} />
+                  <Text style={styles.legendLabel}>{meta.label}</Text>
+                </View>
+              ))}
+            </View>
+          </ScrollView>
+          {emptyHint ? (
+            <View style={styles.hintToast} pointerEvents="none">
+              <Text style={styles.hintToastText}>{emptyHint}</Text>
+            </View>
+          ) : null}
+        </View>
       ) : (
         <>
           <View style={styles.canvas} onLayout={onCanvasLayout}>
@@ -1917,6 +1951,8 @@ export default function BagStackScreen() {
           </View>
         </>
       )}
+
+      <StoryReaderModal story={readerStory} onClose={() => setReaderStory(null)} />
     </View>
   );
 }
@@ -2508,53 +2544,315 @@ const styles = StyleSheet.create({
     height: "100%",
     backgroundColor: "transparent",
   },
+  shelfWrap: {
+    flex: 1,
+    backgroundColor: Brand.secondary,
+  },
+  yearStripWrap: {
+    backgroundColor: Brand.secondary,
+  },
+  yearStrip: {
+    paddingHorizontal: HISTORY_H_PADDING,
+    paddingTop: 12,
+    paddingBottom: 4,
+    gap: 8,
+  },
+  yearChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 14,
+    backgroundColor: Brand.surface,
+    borderWidth: 1,
+    borderColor: Brand.border,
+  },
+  yearChipActive: {
+    backgroundColor: Brand.text,
+    borderColor: Brand.text,
+  },
+  yearChipText: {
+    color: Brand.muted,
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  yearChipTextActive: {
+    color: "#FFFFFF",
+  },
+  monthStripWrap: {
+    backgroundColor: Brand.secondary,
+  },
+  monthStrip: {
+    paddingHorizontal: HISTORY_H_PADDING,
+    paddingTop: 8,
+    paddingBottom: 12,
+    gap: 7,
+  },
+  monthChip: {
+    minWidth: 46,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 13,
+    backgroundColor: Brand.surface,
+    borderWidth: 1,
+    borderColor: Brand.border,
+    alignItems: "center",
+    gap: 4,
+  },
+  monthChipActive: {
+    backgroundColor: "#EEE7FA",
+    borderColor: "#C9B8EC",
+  },
+  monthChipDisabled: {
+    opacity: 0.4,
+  },
+  monthChipText: {
+    color: Brand.text,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  monthChipTextActive: {
+    color: "#5C4B86",
+  },
+  monthChipTextDisabled: {
+    color: Brand.muted,
+  },
+  monthDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "#B4A0E0",
+  },
+  monthDotActive: {
+    backgroundColor: "#7C63B6",
+  },
+  monthDotPlaceholder: {
+    width: 5,
+    height: 5,
+  },
   history: {
     flex: 1,
     backgroundColor: Brand.secondary,
   },
   historyContent: {
-    paddingHorizontal: 12,
-    paddingVertical: 14,
+    paddingHorizontal: HISTORY_H_PADDING,
+    paddingTop: 4,
+    paddingBottom: 28,
   },
-  historyGrid: {
+  monthShelf: {
+    marginBottom: 22,
+  },
+  monthHeader: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    marginBottom: 10,
+    paddingHorizontal: 2,
+  },
+  monthTitle: {
+    color: Brand.text,
+    fontSize: 17,
+    fontWeight: "900",
+    letterSpacing: -0.4,
+  },
+  monthCount: {
+    color: "#8E7BB8",
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  shelfBoard: {
+    backgroundColor: "#2A2633",
+    borderRadius: 18,
+    paddingHorizontal: SHELF_BOARD_PADDING,
+    paddingTop: 14,
+    paddingBottom: 6,
+    borderWidth: 1,
+    borderColor: "#3B3547",
+    shadowColor: "#241F2E",
+    shadowOpacity: 0.35,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  shelfRow: {
+    marginBottom: 12,
+  },
+  shelfSpines: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    columnGap: SPINE_GAP,
+    minHeight: 110,
+  },
+  shelfLedge: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#17141F",
+    marginTop: 3,
+  },
+  spine: {
+    borderTopLeftRadius: 3,
+    borderTopRightRadius: 3,
+    borderBottomLeftRadius: 1,
+    borderBottomRightRadius: 1,
+    overflow: "hidden",
+    justifyContent: "flex-end",
+    alignItems: "center",
+  },
+  spineFilled: {
+    shadowColor: "#000000",
+    shadowOpacity: 0.28,
+    shadowRadius: 4,
+    shadowOffset: { width: 1, height: 2 },
+  },
+  spineCap: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 7,
+    opacity: 0.92,
+  },
+  spineDay: {
+    marginBottom: 4,
+    color: "rgba(255,255,255,0.9)",
+    fontSize: 9,
+    fontWeight: "800",
+  },
+  shelfLegend: {
     flexDirection: "row",
     flexWrap: "wrap",
-    justifyContent: "space-between",
-    rowGap: 10,
+    gap: 14,
+    justifyContent: "center",
+    marginTop: 6,
+    paddingHorizontal: 8,
   },
-  historyCard: {
-    width: "30.8%",
-    minHeight: 178,
-    overflow: "hidden",
-    borderRadius: 8,
+  legendItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  legendDot: {
+    width: 11,
+    height: 11,
+    borderRadius: 3,
+  },
+  legendLabel: {
+    color: Brand.muted,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  hintToast: {
+    position: "absolute",
+    bottom: 24,
+    alignSelf: "center",
+    backgroundColor: "rgba(42,38,51,0.94)",
+    paddingHorizontal: 18,
+    paddingVertical: 11,
+    borderRadius: 22,
+  },
+  hintToastText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  readerBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(26,22,34,0.55)",
+    justifyContent: "flex-end",
+  },
+  readerSheet: {
+    maxHeight: "88%",
     backgroundColor: Brand.surface,
-    borderWidth: 1,
-    borderColor: Brand.border,
-  },
-  historyDate: {
-    paddingHorizontal: 10,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     paddingTop: 10,
-    color: Brand.text,
-    fontSize: 15,
+    overflow: "hidden",
+  },
+  readerHandle: {
+    alignSelf: "center",
+    width: 42,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "#D8CFE0",
+    marginBottom: 6,
+  },
+  readerScroll: {
+    paddingBottom: 12,
+  },
+  readerImage: {
+    width: "100%",
+    aspectRatio: 4 / 3,
+    backgroundColor: Brand.secondary,
+  },
+  readerBody: {
+    paddingHorizontal: 22,
+    paddingTop: 18,
+  },
+  readerMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 10,
+  },
+  emotionChip: {
+    paddingHorizontal: 11,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  emotionChipText: {
+    color: "#FFFFFF",
+    fontSize: 12,
     fontWeight: "900",
   },
-  historyPreview: {
-    flex: 1,
-    marginTop: 6,
-    backgroundColor: Brand.secondary,
-    overflow: "hidden",
+  readerDate: {
+    color: Brand.muted,
+    fontSize: 13,
+    fontWeight: "700",
   },
-  historyPhoto: {
-    position: "absolute",
-    overflow: "hidden",
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: Brand.surface,
-    backgroundColor: Brand.surface,
+  readerTitle: {
+    color: Brand.text,
+    fontSize: 22,
+    fontWeight: "900",
+    letterSpacing: -0.6,
+    lineHeight: 30,
   },
-  historyImage: {
-    width: "100%",
-    height: "100%",
+  readerDivider: {
+    height: 1,
+    backgroundColor: "#EEE8E6",
+    marginVertical: 14,
+  },
+  readerText: {
+    color: "#3A3540",
+    fontSize: 15,
+    lineHeight: 25,
+  },
+  readerTags: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 18,
+  },
+  readerTag: {
+    backgroundColor: "#F1ECFB",
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+    borderRadius: 12,
+  },
+  readerTagText: {
+    color: "#725E98",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  readerClose: {
+    marginHorizontal: 22,
+    marginTop: 8,
+    height: 52,
+    borderRadius: 18,
+    backgroundColor: Brand.text,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  readerCloseText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "900",
   },
   disabledButton: {
     opacity: 0.64,

@@ -107,6 +107,22 @@ type UploadImageData = {
   extension: string;
 };
 
+function isMissingMetadataColumnError(error: { code?: string; message?: string } | null) {
+  if (!error) {
+    return false;
+  }
+
+  const message = error.message ?? '';
+
+  return error.code === '42703'
+    || error.code === 'PGRST204'
+    || message.includes('object_label')
+    || message.includes('note')
+    || message.includes('location_name')
+    || message.includes('location_latitude')
+    || message.includes('location_longitude');
+}
+
 function getImageExtension(uri: string, contentType?: string) {
   if (contentType?.includes('jpeg') || contentType?.includes('jpg')) {
     return 'jpg';
@@ -303,16 +319,7 @@ async function loadItemsForStack(bagStackId: string): Promise<SavedBagItem[]> {
   if (error) {
     // 이야기 기능의 메타데이터 컬럼을 아직 적용하지 않은 DB에서도
     // 기존 객체 이미지는 정상적으로 불러올 수 있게 기존 컬럼만 다시 조회한다.
-    const isMissingMetadataColumn =
-      error.code === '42703'
-      || error.code === 'PGRST204'
-      || error.message.includes('object_label')
-      || error.message.includes('note')
-      || error.message.includes('location_name')
-      || error.message.includes('location_latitude')
-      || error.message.includes('location_longitude');
-
-    if (!isMissingMetadataColumn) {
+    if (!isMissingMetadataColumnError(error)) {
       throw error;
     }
 
@@ -440,14 +447,17 @@ export async function saveBagItem(
     throw persistenceError('storage', uploadError);
   }
 
-  const { data: item, error: insertError } = await supabase
+  const bagItemData = {
+    bag_stack_id: bagStackId,
+    image_url: storagePath,
+    storage_path: storagePath,
+    width: Math.round(imageSize.width),
+    height: Math.round(imageSize.height),
+  };
+  const { data: insertedItem, error: insertError } = await supabase
     .from('bag_items')
     .insert({
-      bag_stack_id: bagStackId,
-      image_url: storagePath,
-      storage_path: storagePath,
-      width: Math.round(imageSize.width),
-      height: Math.round(imageSize.height),
+      ...bagItemData,
       object_label: metadata?.objectLabel ?? null,
       note: metadata?.note?.trim() || null,
       location_name: metadata?.locationName ?? null,
@@ -457,7 +467,30 @@ export async function saveBagItem(
     .select('id,image_url,storage_path,width,height,created_at,object_label,note,location_name,location_latitude,location_longitude')
     .single<BagItemRow>();
 
-  if (insertError) {
+  let item = insertedItem;
+  let finalInsertError = insertError;
+
+  if (isMissingMetadataColumnError(insertError)) {
+    const { data: legacyItem, error: legacyInsertError } = await supabase
+      .from('bag_items')
+      .insert(bagItemData)
+      .select('id,image_url,storage_path,width,height,created_at')
+      .single();
+
+    finalInsertError = legacyInsertError;
+    item = legacyItem
+      ? {
+          ...legacyItem,
+          object_label: null,
+          note: null,
+          location_name: null,
+          location_latitude: null,
+          location_longitude: null,
+        } as BagItemRow
+      : null;
+  }
+
+  if (finalInsertError || !item) {
     const { error: rollbackError } = await supabase.storage
       .from(BAG_ITEMS_BUCKET)
       .remove([storagePath]);
@@ -466,7 +499,7 @@ export async function saveBagItem(
       console.warn('Orphaned bag item image cleanup failed.', rollbackError);
     }
 
-    throw persistenceError('database', insertError);
+    throw persistenceError('database', finalInsertError || new Error('Bag item insert returned no data'));
   }
 
   return {

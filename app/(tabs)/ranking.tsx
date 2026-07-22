@@ -20,10 +20,13 @@ import { Brand } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { loadCurrentBagItems, type SavedBagItem } from '@/services/bag-items';
 import {
+  DEFAULT_EMOTION,
   generateStoryWithGemini,
   loadStories,
   saveStory,
+  STORY_EMOTIONS,
   type GeneratedStory,
+  type StoryEmotion,
   type StoryMood,
 } from '@/services/stories';
 
@@ -43,14 +46,6 @@ function getCreativityCopy(value: number) {
   if (value <= 3) return '오늘 있었던 일에 가까운 그림일기';
   if (value <= 6) return '현실에 기반해 기발한 상상을 더한 이야기';
   return '물건들이 말하고 모험하는 자유로운 판타지';
-}
-
-function isToday(isoDate: string) {
-  const date = new Date(isoDate);
-  const today = new Date();
-  return date.getFullYear() === today.getFullYear()
-    && date.getMonth() === today.getMonth()
-    && date.getDate() === today.getDate();
 }
 
 function formatDate(isoDate: string) {
@@ -92,7 +87,7 @@ function ObjectRail({ items }: { items: SavedBagItem[] }) {
 }
 
 const generationSteps = [
-  { emoji: '🎒', title: '오늘의 주인공을 모으는 중', detail: '가방 속 물건들의 이름과 기억을 읽고 있어요.' },
+  { emoji: '🎒', title: '오늘의 물건을 담는 중', detail: '가방 속 물건들의 이름과 기억을 읽고 있어요.' },
   { emoji: '✍️', title: '당신의 하루를 이야기로 엮는 중', detail: '세 가지 답변을 바탕으로 줄거리를 만들고 있어요.' },
   { emoji: '🎨', title: '그림일기의 한 장면을 그리는 중', detail: 'Gemini가 물건들이 모두 등장하는 일러스트를 그려요.' },
   { emoji: '✨', title: '마지막 장면을 다듬는 중', detail: '이야기의 여운과 그림의 색감을 맞추고 있어요.' },
@@ -225,6 +220,7 @@ export default function StoryScreen() {
   const [savedStories, setSavedStories] = useState<GeneratedStory[]>([]);
   const [story, setStory] = useState<GeneratedStory | null>(null);
   const [concept, setConcept] = useState('');
+  const [emotion, setEmotion] = useState<StoryEmotion>(DEFAULT_EMOTION);
   const [mood, setMood] = useState<StoryMood>('warm');
   const [creativity, setCreativity] = useState(7);
   const [loading, setLoading] = useState(true);
@@ -232,7 +228,9 @@ export default function StoryScreen() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [objectsExpanded, setObjectsExpanded] = useState(true);
 
-  const todayItems = useMemo(() => items.filter((item) => isToday(item.createdAt)), [items]);
+  // '내 가방'은 날짜와 상관없이 유지되는 Current Bag이므로,
+  // 이야기의 주인공도 현재 가방에 담긴 물건 전체를 그대로 사용한다.
+  const todayItems = items;
   const todayObjectSummary = useMemo(() => {
     if (todayItems.length === 0) return '오늘 수집한 물건이 아직 없어요';
     const names = todayItems.map(getObjectName);
@@ -271,6 +269,7 @@ export default function StoryScreen() {
         items: todayItems,
         dailyMoment: concept,
         mood,
+        emotion,
         creativity,
       });
       setStory(generatedStory);
@@ -343,18 +342,18 @@ export default function StoryScreen() {
               onPress={() => setObjectsExpanded((value) => !value)}
               accessibilityRole="button"
               accessibilityState={{ expanded: objectsExpanded }}
-              accessibilityLabel={`오늘의 주인공 ${todayItems.length}개 ${objectsExpanded ? '접기' : '펼치기'}`}
+              accessibilityLabel={`오늘의 물건 ${todayItems.length}개 ${objectsExpanded ? '접기' : '펼치기'}`}
             >
               <Text style={styles.stepLabel}>01</Text>
               <View style={styles.objectsTitleCopy}>
                 <View style={styles.objectsTitleRow}>
-                  <Text style={styles.sectionTitle}>오늘의 주인공</Text>
+                  <Text style={styles.sectionTitle}>오늘의 물건</Text>
                   <View style={styles.objectCountBadge}>
                     <Text style={styles.objectCountText}>{todayItems.length}</Text>
                   </View>
                 </View>
                 <Text style={styles.sectionHint} numberOfLines={objectsExpanded ? 1 : 2}>
-                  {objectsExpanded ? '오늘 수집한 물건을 모두 활용해요' : todayObjectSummary}
+                  {objectsExpanded ? '이 물건들로 오늘의 이야기를 만들어요' : todayObjectSummary}
                 </Text>
               </View>
               <View style={[styles.chevronButton, objectsExpanded && styles.chevronButtonExpanded]}>
@@ -376,6 +375,39 @@ export default function StoryScreen() {
             <View style={styles.questionBlock}>
               <View style={styles.questionTitleRow}>
                 <View style={styles.questionNumber}><Text style={styles.questionNumberText}>1</Text></View>
+                <View style={styles.questionTitleCopy}>
+                  <Text style={styles.questionTitle}>오늘 기분은 어땠나요?</Text>
+                  <Text style={styles.questionDescription}>그날의 감정이 이야기책 책등의 색이 돼요.</Text>
+                </View>
+              </View>
+              <View style={styles.emotionGrid}>
+                {STORY_EMOTIONS.map((option) => {
+                  const selected = emotion === option.key;
+                  return (
+                    <Pressable
+                      key={option.key}
+                      onPress={() => setEmotion(option.key)}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: selected }}
+                      style={[
+                        styles.emotionChip,
+                        selected && { borderColor: option.color, backgroundColor: `${option.color}1F` },
+                      ]}
+                    >
+                      <View style={[styles.emotionSwatch, { backgroundColor: option.color }]} />
+                      <Text style={styles.emotionEmoji}>{option.emoji}</Text>
+                      <Text style={[styles.emotionLabel, selected && styles.emotionLabelSelected]}>{option.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View style={styles.questionDivider} />
+
+            <View style={styles.questionBlock}>
+              <View style={styles.questionTitleRow}>
+                <View style={styles.questionNumber}><Text style={styles.questionNumberText}>2</Text></View>
                 <View style={styles.questionTitleCopy}>
                   <Text style={styles.questionTitle}>오늘 어떤 일이 있었나요?</Text>
                   <Text style={styles.questionDescription}>작은 일도 좋아요. 비워 두면 물건만으로 만들어요.</Text>
@@ -412,7 +444,7 @@ export default function StoryScreen() {
 
             <View style={styles.questionBlock}>
               <View style={styles.questionTitleRow}>
-                <View style={styles.questionNumber}><Text style={styles.questionNumberText}>2</Text></View>
+                <View style={styles.questionNumber}><Text style={styles.questionNumberText}>3</Text></View>
                 <View style={styles.questionTitleCopy}>
                   <Text style={styles.questionTitle}>어떤 이야기로 만들까요?</Text>
                   <Text style={styles.questionDescription}>오늘을 기억하고 싶은 방식을 하나 골라요.</Text>
@@ -453,7 +485,7 @@ export default function StoryScreen() {
 
             <View style={styles.questionBlock}>
               <View style={styles.questionTitleRow}>
-                <View style={styles.questionNumber}><Text style={styles.questionNumberText}>3</Text></View>
+                <View style={styles.questionNumber}><Text style={styles.questionNumberText}>4</Text></View>
                 <View style={styles.questionTitleCopy}>
                   <Text style={styles.questionTitle}>상상을 얼마나 더할까요?</Text>
                   <Text style={styles.questionDescription}>{getCreativityCopy(creativity)}</Text>
@@ -563,8 +595,8 @@ const styles = StyleSheet.create({
   historyBadgeText: { color: '#FFFFFF', fontSize: 10, fontWeight: '900' },
   sectionHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 16 },
   sectionTitleCopy: { flex: 1 },
-  objectsSection: { marginBottom: 8 },
-  objectsToggle: { flexDirection: 'row', alignItems: 'center', minHeight: 62, borderRadius: 20, paddingVertical: 8, paddingHorizontal: 2 },
+  objectsSection: { backgroundColor: Brand.surface, borderRadius: 28, paddingHorizontal: 18, paddingTop: 6, paddingBottom: 14, marginBottom: 16, borderWidth: 1, borderColor: Brand.border, shadowColor: '#67576B', shadowOpacity: 0.08, shadowRadius: 18, shadowOffset: { width: 0, height: 7 } },
+  objectsToggle: { flexDirection: 'row', alignItems: 'center', minHeight: 60, borderRadius: 20, paddingVertical: 8 },
   objectsTogglePressed: { opacity: 0.62 },
   objectsTitleCopy: { flex: 1, marginLeft: 12 },
   objectsTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -576,14 +608,14 @@ const styles = StyleSheet.create({
   stepLabel: { width: 31, height: 31, paddingTop: 7, borderRadius: 10, overflow: 'hidden', textAlign: 'center', backgroundColor: Brand.lavender, color: Brand.text, fontSize: 12, fontWeight: '900' },
   sectionTitle: { fontSize: 19, fontWeight: '900', color: Brand.text, letterSpacing: -0.4 },
   sectionHint: { fontSize: 12, color: Brand.muted, marginTop: 4 },
-  emptyObjects: { flexDirection: 'row', alignItems: 'center', padding: 16, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.78)', borderWidth: 1, borderColor: Brand.border, marginBottom: 28 },
+  emptyObjects: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingRight: 8 },
   emptyObjectsEmoji: { fontSize: 30, marginRight: 13 },
   emptyObjectsCopy: { flex: 1 },
   emptyObjectsTitle: { color: Brand.text, fontSize: 14, fontWeight: '800' },
   emptyObjectsText: { color: Brand.muted, fontSize: 12, lineHeight: 17, marginTop: 4 },
-  objectRail: { gap: 12, paddingRight: 18, paddingBottom: 28 },
+  objectRail: { gap: 12, paddingRight: 4, paddingTop: 4, paddingBottom: 6 },
   objectChip: { width: 86, alignItems: 'center' },
-  objectImageWrap: { width: 78, height: 78, borderRadius: 24, backgroundColor: Brand.surface, borderWidth: 1, borderColor: Brand.border, padding: 10, shadowColor: '#5D4C6D', shadowOpacity: 0.08, shadowRadius: 9, shadowOffset: { width: 0, height: 4 } },
+  objectImageWrap: { width: 78, height: 78, borderRadius: 24, backgroundColor: Brand.surfaceWarm, borderWidth: 1, borderColor: Brand.border, padding: 10 },
   objectImage: { width: '100%', height: '100%' },
   objectName: { maxWidth: 82, marginTop: 8, color: Brand.text, fontSize: 12, fontWeight: '700' },
   generationScreen: { flex: 1, overflow: 'hidden' },
@@ -623,6 +655,12 @@ const styles = StyleSheet.create({
   suggestionChip: { paddingHorizontal: 11, paddingVertical: 8, borderRadius: 12, backgroundColor: '#F5F0FA', borderWidth: 1, borderColor: '#E5DAF1' },
   suggestionChipPressed: { opacity: 0.6 },
   suggestionChipText: { color: '#725E98', fontSize: 10, fontWeight: '700' },
+  emotionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
+  emotionChip: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 14, backgroundColor: Brand.surface, borderWidth: 1.5, borderColor: Brand.border },
+  emotionSwatch: { width: 10, height: 10, borderRadius: 3 },
+  emotionEmoji: { fontSize: 15 },
+  emotionLabel: { fontSize: 13, fontWeight: '800', color: Brand.muted },
+  emotionLabelSelected: { color: Brand.text },
   moodList: { gap: 9, marginTop: 14 },
   moodCard: { minHeight: 72, borderRadius: 17, borderWidth: 1, borderColor: '#E9E1DF', backgroundColor: '#FBF9F7', paddingHorizontal: 12, paddingVertical: 11, flexDirection: 'row', alignItems: 'center' },
   moodCardSelected: { borderWidth: 2, borderColor: '#947CC6', backgroundColor: '#F3EEFC', paddingHorizontal: 11, paddingVertical: 10 },
