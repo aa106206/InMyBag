@@ -1,5 +1,5 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -20,10 +20,13 @@ import { Brand } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { loadCurrentBagItems, type SavedBagItem } from '@/services/bag-items';
 import {
-  createStoryDraft,
+  DEFAULT_EMOTION,
+  generateStoryWithGemini,
   loadStories,
   saveStory,
+  STORY_EMOTIONS,
   type GeneratedStory,
+  type StoryEmotion,
   type StoryMood,
 } from '@/services/stories';
 
@@ -43,14 +46,6 @@ function getCreativityCopy(value: number) {
   if (value <= 3) return '오늘 있었던 일에 가까운 그림일기';
   if (value <= 6) return '현실에 기반해 기발한 상상을 더한 이야기';
   return '물건들이 말하고 모험하는 자유로운 판타지';
-}
-
-function isToday(isoDate: string) {
-  const date = new Date(isoDate);
-  const today = new Date();
-  return date.getFullYear() === today.getFullYear()
-    && date.getMonth() === today.getMonth()
-    && date.getDate() === today.getDate();
 }
 
 function formatDate(isoDate: string) {
@@ -91,7 +86,85 @@ function ObjectRail({ items }: { items: SavedBagItem[] }) {
   );
 }
 
+const generationSteps = [
+  { emoji: '🎒', title: '오늘의 물건을 담는 중', detail: '가방 속 물건들의 이름과 기억을 읽고 있어요.' },
+  { emoji: '✍️', title: '당신의 하루를 이야기로 엮는 중', detail: '세 가지 답변을 바탕으로 줄거리를 만들고 있어요.' },
+  { emoji: '🎨', title: '그림일기의 한 장면을 그리는 중', detail: 'Gemini가 물건들이 모두 등장하는 일러스트를 그려요.' },
+  { emoji: '✨', title: '마지막 장면을 다듬는 중', detail: '이야기의 여운과 그림의 색감을 맞추고 있어요.' },
+];
+
+function StoryGenerationModal({ visible, items }: { visible: boolean; items: SavedBagItem[] }) {
+  const [step, setStep] = useState(0);
+
+  useEffect(() => {
+    if (!visible) {
+      setStep(0);
+      return;
+    }
+
+    const intervalId = setInterval(() => {
+      setStep((current) => Math.min(current + 1, generationSteps.length - 1));
+    }, 6500);
+
+    return () => clearInterval(intervalId);
+  }, [visible]);
+
+  const currentStep = generationSteps[step];
+
+  return (
+    <Modal visible={visible} animationType="fade" presentationStyle="fullScreen">
+      <LinearGradient colors={['#FFF4E7', '#F6EAF8', '#E9E4FA']} style={styles.generationScreen}>
+        <View style={styles.generationGlowOne} />
+        <View style={styles.generationGlowTwo} />
+        <View style={styles.generationContent}>
+          <Text style={styles.generationEyebrow}>CREATING YOUR SNAP STORY</Text>
+          <View style={styles.generationObjectStage}>
+            {items.slice(0, 3).map((item, index) => (
+              <View
+                key={item.id}
+                style={[
+                  styles.generationObjectCard,
+                  index === 0 && styles.generationObjectLeft,
+                  index === 1 && styles.generationObjectCenter,
+                  index === 2 && styles.generationObjectRight,
+                ]}
+              >
+                <Image source={{ uri: item.imageUrl }} style={styles.generationObjectImage} resizeMode="contain" />
+              </View>
+            ))}
+            <View style={styles.generationSparkle}><Text style={styles.generationSparkleText}>✦</Text></View>
+          </View>
+
+          <Text style={styles.generationEmoji}>{currentStep.emoji}</Text>
+          <Text style={styles.generationTitle}>{currentStep.title}</Text>
+          <Text style={styles.generationDetail}>{currentStep.detail}</Text>
+
+          <View style={styles.generationProgress}>
+            {generationSteps.map((item, index) => (
+              <View key={item.title} style={[styles.generationProgressDot, index <= step && styles.generationProgressDotActive]} />
+            ))}
+          </View>
+          <ActivityIndicator color="#725E98" size="small" />
+          <Text style={styles.generationWaitText}>이야기와 그림을 함께 만드는 데 잠시 시간이 필요해요.{"\n"}앱을 닫지 말고 기다려 주세요.</Text>
+        </View>
+      </LinearGradient>
+    </Modal>
+  );
+}
+
 function StoryIllustration({ story }: { story: GeneratedStory }) {
+  if (story.illustrationUrl) {
+    return (
+      <View style={styles.illustration}>
+        <Image source={{ uri: story.illustrationUrl }} style={styles.generatedIllustration} resizeMode="cover" />
+        <View style={styles.generatedIllustrationShade} />
+        <View style={styles.illustrationLabel}>
+          <Text style={styles.illustrationLabelText}>{"TODAY'S SNAP STORY"}</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <LinearGradient colors={['#DCD4F5', '#F8DDE8', '#FFF0D8']} style={styles.illustration}>
       <View style={styles.sun} />
@@ -141,11 +214,13 @@ function StoryCard({ story, compact = false }: { story: GeneratedStory; compact?
 
 export default function StoryScreen() {
   const insets = useSafeAreaInsets();
+  const scrollRef = useRef<ScrollView>(null);
   const { user } = useAuth();
   const [items, setItems] = useState<SavedBagItem[]>([]);
   const [savedStories, setSavedStories] = useState<GeneratedStory[]>([]);
   const [story, setStory] = useState<GeneratedStory | null>(null);
   const [concept, setConcept] = useState('');
+  const [emotion, setEmotion] = useState<StoryEmotion>(DEFAULT_EMOTION);
   const [mood, setMood] = useState<StoryMood>('warm');
   const [creativity, setCreativity] = useState(7);
   const [loading, setLoading] = useState(true);
@@ -153,7 +228,9 @@ export default function StoryScreen() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [objectsExpanded, setObjectsExpanded] = useState(true);
 
-  const todayItems = useMemo(() => items.filter((item) => isToday(item.createdAt)), [items]);
+  // '내 가방'은 날짜와 상관없이 유지되는 Current Bag이므로,
+  // 이야기의 주인공도 현재 가방에 담긴 물건 전체를 그대로 사용한다.
+  const todayItems = items;
   const todayObjectSummary = useMemo(() => {
     if (todayItems.length === 0) return '오늘 수집한 물건이 아직 없어요';
     const names = todayItems.map(getObjectName);
@@ -187,9 +264,30 @@ export default function StoryScreen() {
       return;
     }
     setGenerating(true);
-    await new Promise((resolve) => setTimeout(resolve, 900));
-    setStory(createStoryDraft({ items: todayItems, concept, length: 'medium', mood, creativity }));
-    setGenerating(false);
+    try {
+      const generatedStory = await generateStoryWithGemini({
+        items: todayItems,
+        dailyMoment: concept,
+        mood,
+        emotion,
+        creativity,
+      });
+      setStory(generatedStory);
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 350);
+    } catch (error) {
+      console.warn('Gemini story generation failed.', error);
+      const message = error instanceof Error ? error.message : '';
+      const userMessage = message.includes('API key')
+        ? 'AI 서버에 Gemini API 키가 설정되지 않았어요.'
+        : message.includes('429') || message.toLowerCase().includes('quota')
+          ? 'Gemini 사용량이 잠시 초과됐어요. 잠시 후 다시 시도해 주세요.'
+          : message.includes('404') || message.toLowerCase().includes('not found')
+            ? '현재 Gemini API 키에서 이미지 생성 모델을 사용할 수 없어요. 모델 접근 권한을 확인해 주세요.'
+            : '이야기를 만드는 중 문제가 생겼어요. AI 서버와 네트워크를 확인한 뒤 다시 시도해 주세요.';
+      Alert.alert('그림일기 생성 실패', userMessage);
+    } finally {
+      setGenerating(false);
+    }
   };
 
   const persistStory = async () => {
@@ -217,7 +315,9 @@ export default function StoryScreen() {
 
   return (
     <>
+      <StoryGenerationModal visible={generating} items={todayItems} />
       <ScrollView
+        ref={scrollRef}
         style={styles.screen}
         contentContainerStyle={{ paddingTop: insets.top + 18, paddingBottom: insets.bottom + 110 }}
         showsVerticalScrollIndicator={false}
@@ -242,18 +342,18 @@ export default function StoryScreen() {
               onPress={() => setObjectsExpanded((value) => !value)}
               accessibilityRole="button"
               accessibilityState={{ expanded: objectsExpanded }}
-              accessibilityLabel={`오늘의 주인공 ${todayItems.length}개 ${objectsExpanded ? '접기' : '펼치기'}`}
+              accessibilityLabel={`오늘의 물건 ${todayItems.length}개 ${objectsExpanded ? '접기' : '펼치기'}`}
             >
               <Text style={styles.stepLabel}>01</Text>
               <View style={styles.objectsTitleCopy}>
                 <View style={styles.objectsTitleRow}>
-                  <Text style={styles.sectionTitle}>오늘의 주인공</Text>
+                  <Text style={styles.sectionTitle}>오늘의 물건</Text>
                   <View style={styles.objectCountBadge}>
                     <Text style={styles.objectCountText}>{todayItems.length}</Text>
                   </View>
                 </View>
                 <Text style={styles.sectionHint} numberOfLines={objectsExpanded ? 1 : 2}>
-                  {objectsExpanded ? '오늘 수집한 물건을 모두 활용해요' : todayObjectSummary}
+                  {objectsExpanded ? '이 물건들로 오늘의 이야기를 만들어요' : todayObjectSummary}
                 </Text>
               </View>
               <View style={[styles.chevronButton, objectsExpanded && styles.chevronButtonExpanded]}>
@@ -275,6 +375,39 @@ export default function StoryScreen() {
             <View style={styles.questionBlock}>
               <View style={styles.questionTitleRow}>
                 <View style={styles.questionNumber}><Text style={styles.questionNumberText}>1</Text></View>
+                <View style={styles.questionTitleCopy}>
+                  <Text style={styles.questionTitle}>오늘 기분은 어땠나요?</Text>
+                  <Text style={styles.questionDescription}>그날의 감정이 이야기책 책등의 색이 돼요.</Text>
+                </View>
+              </View>
+              <View style={styles.emotionGrid}>
+                {STORY_EMOTIONS.map((option) => {
+                  const selected = emotion === option.key;
+                  return (
+                    <Pressable
+                      key={option.key}
+                      onPress={() => setEmotion(option.key)}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: selected }}
+                      style={[
+                        styles.emotionChip,
+                        selected && { borderColor: option.color, backgroundColor: `${option.color}1F` },
+                      ]}
+                    >
+                      <View style={[styles.emotionSwatch, { backgroundColor: option.color }]} />
+                      <Text style={styles.emotionEmoji}>{option.emoji}</Text>
+                      <Text style={[styles.emotionLabel, selected && styles.emotionLabelSelected]}>{option.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View style={styles.questionDivider} />
+
+            <View style={styles.questionBlock}>
+              <View style={styles.questionTitleRow}>
+                <View style={styles.questionNumber}><Text style={styles.questionNumberText}>2</Text></View>
                 <View style={styles.questionTitleCopy}>
                   <Text style={styles.questionTitle}>오늘 어떤 일이 있었나요?</Text>
                   <Text style={styles.questionDescription}>작은 일도 좋아요. 비워 두면 물건만으로 만들어요.</Text>
@@ -311,7 +444,7 @@ export default function StoryScreen() {
 
             <View style={styles.questionBlock}>
               <View style={styles.questionTitleRow}>
-                <View style={styles.questionNumber}><Text style={styles.questionNumberText}>2</Text></View>
+                <View style={styles.questionNumber}><Text style={styles.questionNumberText}>3</Text></View>
                 <View style={styles.questionTitleCopy}>
                   <Text style={styles.questionTitle}>어떤 이야기로 만들까요?</Text>
                   <Text style={styles.questionDescription}>오늘을 기억하고 싶은 방식을 하나 골라요.</Text>
@@ -352,7 +485,7 @@ export default function StoryScreen() {
 
             <View style={styles.questionBlock}>
               <View style={styles.questionTitleRow}>
-                <View style={styles.questionNumber}><Text style={styles.questionNumberText}>3</Text></View>
+                <View style={styles.questionNumber}><Text style={styles.questionNumberText}>4</Text></View>
                 <View style={styles.questionTitleCopy}>
                   <Text style={styles.questionTitle}>상상을 얼마나 더할까요?</Text>
                   <Text style={styles.questionDescription}>{getCreativityCopy(creativity)}</Text>
@@ -462,8 +595,8 @@ const styles = StyleSheet.create({
   historyBadgeText: { color: '#FFFFFF', fontSize: 10, fontWeight: '900' },
   sectionHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 16 },
   sectionTitleCopy: { flex: 1 },
-  objectsSection: { marginBottom: 8 },
-  objectsToggle: { flexDirection: 'row', alignItems: 'center', minHeight: 62, borderRadius: 20, paddingVertical: 8, paddingHorizontal: 2 },
+  objectsSection: { backgroundColor: Brand.surface, borderRadius: 28, paddingHorizontal: 18, paddingTop: 6, paddingBottom: 14, marginBottom: 16, borderWidth: 1, borderColor: Brand.border, shadowColor: '#67576B', shadowOpacity: 0.08, shadowRadius: 18, shadowOffset: { width: 0, height: 7 } },
+  objectsToggle: { flexDirection: 'row', alignItems: 'center', minHeight: 60, borderRadius: 20, paddingVertical: 8 },
   objectsTogglePressed: { opacity: 0.62 },
   objectsTitleCopy: { flex: 1, marginLeft: 12 },
   objectsTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -475,16 +608,36 @@ const styles = StyleSheet.create({
   stepLabel: { width: 31, height: 31, paddingTop: 7, borderRadius: 10, overflow: 'hidden', textAlign: 'center', backgroundColor: Brand.lavender, color: Brand.text, fontSize: 12, fontWeight: '900' },
   sectionTitle: { fontSize: 19, fontWeight: '900', color: Brand.text, letterSpacing: 0 },
   sectionHint: { fontSize: 12, color: Brand.muted, marginTop: 4 },
-  emptyObjects: { flexDirection: 'row', alignItems: 'center', padding: 16, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.78)', borderWidth: 1, borderColor: Brand.border, marginBottom: 28 },
+  emptyObjects: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingRight: 8 },
   emptyObjectsEmoji: { fontSize: 30, marginRight: 13 },
   emptyObjectsCopy: { flex: 1 },
   emptyObjectsTitle: { color: Brand.text, fontSize: 14, fontWeight: '800' },
   emptyObjectsText: { color: Brand.muted, fontSize: 12, lineHeight: 17, marginTop: 4 },
-  objectRail: { gap: 12, paddingRight: 18, paddingBottom: 28 },
+  objectRail: { gap: 12, paddingRight: 4, paddingTop: 4, paddingBottom: 6 },
   objectChip: { width: 86, alignItems: 'center' },
-  objectImageWrap: { width: 78, height: 78, borderRadius: 24, backgroundColor: Brand.surface, borderWidth: 1, borderColor: Brand.border, padding: 10, shadowColor: '#5D4C6D', shadowOpacity: 0.08, shadowRadius: 9, shadowOffset: { width: 0, height: 4 } },
+  objectImageWrap: { width: 78, height: 78, borderRadius: 24, backgroundColor: Brand.surfaceWarm, borderWidth: 1, borderColor: Brand.border, padding: 10 },
   objectImage: { width: '100%', height: '100%' },
   objectName: { maxWidth: 82, marginTop: 8, color: Brand.text, fontSize: 12, fontWeight: '700' },
+  generationScreen: { flex: 1, overflow: 'hidden' },
+  generationGlowOne: { position: 'absolute', width: 260, height: 260, borderRadius: 130, right: -90, top: -45, backgroundColor: 'rgba(255,255,255,0.48)' },
+  generationGlowTwo: { position: 'absolute', width: 220, height: 220, borderRadius: 110, left: -100, bottom: 30, backgroundColor: 'rgba(255,206,224,0.28)' },
+  generationContent: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 30 },
+  generationEyebrow: { color: '#806EA8', fontSize: 10, fontWeight: '900', letterSpacing: 2.1, marginBottom: 32 },
+  generationObjectStage: { width: 265, height: 142, marginBottom: 20 },
+  generationObjectCard: { position: 'absolute', width: 94, height: 94, borderRadius: 29, padding: 13, backgroundColor: 'rgba(255,255,255,0.9)', borderWidth: 1, borderColor: '#E6D9EA', shadowColor: '#685979', shadowOpacity: 0.15, shadowRadius: 15, shadowOffset: { width: 0, height: 8 } },
+  generationObjectLeft: { left: 0, top: 29, transform: [{ rotate: '-8deg' }] },
+  generationObjectCenter: { left: 85, top: 0, zIndex: 2 },
+  generationObjectRight: { right: 0, top: 31, transform: [{ rotate: '8deg' }] },
+  generationObjectImage: { width: '100%', height: '100%' },
+  generationSparkle: { position: 'absolute', right: 29, top: 4, width: 31, height: 31, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF8E8', zIndex: 4 },
+  generationSparkleText: { color: '#B483B8', fontSize: 19 },
+  generationEmoji: { fontSize: 30, marginBottom: 12 },
+  generationTitle: { color: Brand.text, fontSize: 22, lineHeight: 30, fontWeight: '900', textAlign: 'center', letterSpacing: -0.5 },
+  generationDetail: { maxWidth: 310, marginTop: 9, color: Brand.muted, fontSize: 13, lineHeight: 20, textAlign: 'center' },
+  generationProgress: { flexDirection: 'row', gap: 7, marginTop: 27, marginBottom: 18 },
+  generationProgressDot: { width: 23, height: 6, borderRadius: 3, backgroundColor: 'rgba(113,91,143,0.16)' },
+  generationProgressDotActive: { backgroundColor: '#9279BD' },
+  generationWaitText: { marginTop: 16, color: '#837987', fontSize: 11, lineHeight: 17, textAlign: 'center' },
   formCard: { backgroundColor: Brand.surface, borderRadius: 28, paddingHorizontal: 18, paddingTop: 20, paddingBottom: 18, borderWidth: 1, borderColor: Brand.border, shadowColor: '#67576B', shadowOpacity: 0.08, shadowRadius: 18, shadowOffset: { width: 0, height: 7 } },
   questionBlock: { paddingTop: 8 },
   questionTitleRow: { flexDirection: 'row', alignItems: 'flex-start' },
@@ -502,6 +655,12 @@ const styles = StyleSheet.create({
   suggestionChip: { paddingHorizontal: 11, paddingVertical: 8, borderRadius: 12, backgroundColor: Brand.surfaceElevated, borderWidth: 1, borderColor: Brand.borderSoft },
   suggestionChipPressed: { opacity: 0.6 },
   suggestionChipText: { color: '#725E98', fontSize: 10, fontWeight: '700' },
+  emotionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
+  emotionChip: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 14, backgroundColor: Brand.surface, borderWidth: 1.5, borderColor: Brand.border },
+  emotionSwatch: { width: 10, height: 10, borderRadius: 3 },
+  emotionEmoji: { fontSize: 15 },
+  emotionLabel: { fontSize: 13, fontWeight: '800', color: Brand.muted },
+  emotionLabelSelected: { color: Brand.text },
   moodList: { gap: 9, marginTop: 14 },
   moodCard: { minHeight: 72, borderRadius: 17, borderWidth: 1, borderColor: '#E9E1DF', backgroundColor: '#FBF9F7', paddingHorizontal: 12, paddingVertical: 11, flexDirection: 'row', alignItems: 'center' },
   moodCardSelected: { borderWidth: 2, borderColor: '#947CC6', backgroundColor: '#F3EEFC', paddingHorizontal: 11, paddingVertical: 10 },
@@ -543,6 +702,8 @@ const styles = StyleSheet.create({
   storyCard: { borderRadius: 26, overflow: 'hidden', backgroundColor: Brand.surfaceElevated, borderWidth: 1, borderColor: Brand.borderSoft, shadowColor: Brand.text, shadowOpacity: 0.10, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 6 },
   storyCardCompact: { marginBottom: 20 },
   illustration: { height: 245, overflow: 'hidden' },
+  generatedIllustration: { width: '100%', height: '100%' },
+  generatedIllustrationShade: { position: 'absolute', left: 0, right: 0, top: 0, height: 64, backgroundColor: 'rgba(56,43,66,0.08)' },
   ground: { position: 'absolute', left: -20, right: -20, bottom: -42, height: 105, borderRadius: 80, backgroundColor: '#B8CFAE' },
   sun: { position: 'absolute', width: 54, height: 54, borderRadius: 27, right: 27, top: 25, backgroundColor: '#FFE29A', opacity: 0.92 },
   cloudOne: { position: 'absolute', width: 78, height: 24, borderRadius: 18, left: 22, top: 34, backgroundColor: 'rgba(255,255,255,0.65)' },
