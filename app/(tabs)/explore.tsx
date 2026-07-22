@@ -30,9 +30,7 @@ import { ExploreOwner, fetchExploreBagOwners } from '@/services/explore';
 const WALL_THICKNESS = 70;
 const FIXED_TIMESTEP = 1000 / 60;
 
-const DEFAULT_OBJECT_SIZE = 92;
-const MAX_OBJECT_SIZE = 132;
-const MIN_OBJECT_SIZE = 72;
+const TARGET_OBJECT_SIZE = 112;
 const EXPLORE_CARD_GAP = 18;
 
 // 가방 아이템을 캔버스에 흩뿌릴 때 쓰는 상대 좌표들.
@@ -74,14 +72,11 @@ type WorldSize = {
 
 function getObjectDisplaySize(width?: number, height?: number): ObjectSize {
   if (!width || !height || width <= 0 || height <= 0) {
-    return { width: DEFAULT_OBJECT_SIZE, height: DEFAULT_OBJECT_SIZE };
+    return { width: TARGET_OBJECT_SIZE, height: TARGET_OBJECT_SIZE };
   }
 
   const longestSide = Math.max(width, height);
-  const shortestSide = Math.min(width, height);
-  const maxScale = MAX_OBJECT_SIZE / longestSide;
-  const minScale = MIN_OBJECT_SIZE / shortestSide;
-  const scale = Math.max(maxScale, minScale);
+  const scale = TARGET_OBJECT_SIZE / longestSide;
 
   return {
     width: Math.round(width * scale),

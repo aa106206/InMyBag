@@ -10,8 +10,8 @@ import { Brand, Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 const TAB_BAR_HEIGHT = 64;
-const TAB_ICON_SIZE = 30;
-const FEED_TAB_ICON_SIZE = 32;
+const TAB_ICON_SIZE = 26;
+const FEED_TAB_ICON_SIZE = 27;
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
@@ -25,9 +25,15 @@ export default function TabLayout() {
         tabBarInactiveTintColor: Colors[colorScheme ?? 'light'].tabIconDefault,
         headerShown: false,
         tabBarButton: HapticTab,
-        tabBarShowLabel: false,
+        tabBarShowLabel: true,
+        tabBarLabelStyle: {
+          fontSize: 9,
+          lineHeight: 12,
+          fontWeight: '800',
+        },
         tabBarItemStyle: {
           borderRadius: 18,
+          gap: 2,
         },
         tabBarStyle: {
           backgroundColor: Brand.surfaceElevated,
@@ -35,7 +41,7 @@ export default function TabLayout() {
           borderTopColor: 'transparent',
           height: TAB_BAR_HEIGHT + bottomInset,
           paddingBottom: bottomInset,
-          paddingTop: 8,
+          paddingTop: 6,
           shadowColor: Brand.text,
           shadowOffset: { width: 0, height: -8 },
           shadowOpacity: 0.08,
@@ -63,7 +69,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Feed',
+          title: '피드',
           tabBarIcon: ({ color }) => <IconSymbol size={FEED_TAB_ICON_SIZE} name="person.fill" color={color} />,
         }}
       />
