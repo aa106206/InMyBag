@@ -1,13 +1,15 @@
 import { Accelerometer } from 'expo-sensors';
 import { useFocusEffect } from 'expo-router';
 import Matter, { Bodies, Body, Engine, World } from 'matter-js';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Animated,
+  FlatList,
   Image,
   LayoutChangeEvent,
   Modal,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   PanResponder,
   Platform,
   Pressable,
@@ -31,6 +33,7 @@ const FIXED_TIMESTEP = 1000 / 60;
 const DEFAULT_OBJECT_SIZE = 92;
 const MAX_OBJECT_SIZE = 132;
 const MIN_OBJECT_SIZE = 72;
+const EXPLORE_CARD_GAP = 18;
 
 // 가방 아이템을 캔버스에 흩뿌릴 때 쓰는 상대 좌표들.
 const SCATTER_POINTS = [
@@ -56,6 +59,12 @@ type PhysicsPhotoItem = SavedBagItem & {
 type SelectedPhotoInfo = {
   item: SavedBagItem;
   ownerName: string;
+};
+
+type ExploreCarouselEntry = {
+  owner: ExploreOwner;
+  loopIndex: number;
+  realIndex: number;
 };
 
 type WorldSize = {
@@ -442,15 +451,36 @@ function OwnerAvatar({ owner, size }: { owner: ExploreOwner; size: number }) {
   );
 }
 
+function ExploreSidePreview({ owner, cardWidth }: { owner: ExploreOwner | null; cardWidth: number }) {
+  const ownerHandle = owner ? getDisplayHandle(owner) : 'snapbag';
+
+  return (
+    <View style={[styles.sidePreviewCard, { width: cardWidth }]}>
+      <View style={styles.sidePreviewHeader}>
+        {owner ? <OwnerAvatar owner={owner} size={30} /> : <View style={styles.sidePreviewAvatar} />}
+        <View style={styles.sidePreviewTextBlock}>
+          <Text numberOfLines={1} style={styles.sidePreviewUser}>
+            @{ownerHandle}
+          </Text>
+          <Text style={styles.sidePreviewSub}>오늘의 가방</Text>
+        </View>
+      </View>
+      <View style={styles.sidePreviewBody} />
+    </View>
+  );
+}
+
 function ExploreBagCanvas({
   owner,
   items,
   isLoading,
+  cardWidth,
   onOpenPhotoInfo,
 }: {
   owner: ExploreOwner;
   items: SavedBagItem[];
   isLoading: boolean;
+  cardWidth: number;
   onOpenPhotoInfo: (info: SelectedPhotoInfo) => void;
 }) {
   const engineRef = useRef(Engine.create({ gravity: { x: 0, y: 0, scale: 0.002 } }));
@@ -591,7 +621,7 @@ function ExploreBagCanvas({
   const ownerHandle = getDisplayHandle(owner);
 
   return (
-    <View style={styles.bagPanel}>
+    <View style={[styles.bagPanel, { width: cardWidth }]}>
       <View style={styles.bagPanelHeader}>
         <View style={styles.bagIdentity}>
           <OwnerAvatar owner={owner} size={34} />
@@ -630,30 +660,60 @@ function ExploreBagCanvas({
   );
 }
 
-const SWIPE_ANIM_MS = 190;
-
 export default function ExploreScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const userId = user?.id ?? null;
   const { width: windowWidth } = useWindowDimensions();
+  const cardWidth = Math.min(Math.max(windowWidth - 104, 236), windowWidth - 68, 520);
+  const slideDistance = cardWidth + EXPLORE_CARD_GAP;
 
   const [owners, setOwners] = useState<ExploreOwner[]>([]);
   const [isLoadingOwners, setIsLoadingOwners] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [bagItems, setBagItems] = useState<SavedBagItem[]>([]);
-  const [isLoadingItems, setIsLoadingItems] = useState(false);
+  const [activeLoopIndex, setActiveLoopIndex] = useState(0);
+  const [bagItemsByOwner, setBagItemsByOwner] = useState<Record<string, SavedBagItem[]>>({});
+  const [loadingOwnerId, setLoadingOwnerId] = useState<string | null>(null);
   const [selectedPhotoInfo, setSelectedPhotoInfo] = useState<SelectedPhotoInfo | null>(null);
 
-  const translateX = useRef(new Animated.Value(0)).current;
+  const carouselRef = useRef<FlatList<ExploreCarouselEntry>>(null);
   const itemsLoadIdRef = useRef(0);
-  const ownersRef = useRef<ExploreOwner[]>([]);
-  const indexRef = useRef(0);
-  const isAnimatingRef = useRef(false);
-  const windowWidthRef = useRef(windowWidth);
-  ownersRef.current = owners;
-  indexRef.current = currentIndex;
-  windowWidthRef.current = windowWidth;
+  const ownersCount = owners.length;
+  const initialLoopIndex = ownersCount > 1 ? 1 : 0;
+  const carouselData = useMemo<ExploreCarouselEntry[]>(() => {
+    if (owners.length <= 1) {
+      return owners.map((owner, index) => ({ owner, loopIndex: index, realIndex: index }));
+    }
+
+    const lastIndex = owners.length - 1;
+    return [
+      { owner: owners[lastIndex], loopIndex: 0, realIndex: lastIndex },
+      ...owners.map((owner, index) => ({
+        owner,
+        loopIndex: index + 1,
+        realIndex: index,
+      })),
+      { owner: owners[0], loopIndex: owners.length + 1, realIndex: 0 },
+    ];
+  }, [owners]);
+
+  const scrollToLoopIndex = useCallback(
+    (loopIndex: number, animated = false) => {
+      requestAnimationFrame(() => {
+        carouselRef.current?.scrollToOffset({
+          offset: loopIndex * slideDistance,
+          animated,
+        });
+      });
+    },
+    [slideDistance],
+  );
+
+  useEffect(() => {
+    if (ownersCount > 0) {
+      scrollToLoopIndex(initialLoopIndex);
+    }
+  }, [initialLoopIndex, ownersCount, scrollToLoopIndex]);
 
   // 탭에 들어올 때마다 랜덤한 다른 계정 목록을 새로 불러온다. (본인 제외)
   useFocusEffect(
@@ -673,7 +733,9 @@ export default function ExploreScreen() {
           if (!cancelled) {
             setOwners(nextOwners);
             setCurrentIndex(0);
-            translateX.setValue(0);
+            setActiveLoopIndex(nextOwners.length > 1 ? 1 : 0);
+            setBagItemsByOwner({});
+            setLoadingOwnerId(null);
           }
         } catch (error) {
           console.warn('Failed to load explore owners', error);
@@ -690,32 +752,32 @@ export default function ExploreScreen() {
       return () => {
         cancelled = true;
       };
-    }, [translateX, userId]),
+    }, [userId]),
   );
 
   const loadOwnerBag = useCallback(async (owner: ExploreOwner | null) => {
     if (!owner) {
-      setBagItems([]);
+      setLoadingOwnerId(null);
       return;
     }
 
     const loadId = itemsLoadIdRef.current + 1;
     itemsLoadIdRef.current = loadId;
-    setIsLoadingItems(true);
+    setLoadingOwnerId(owner.id);
 
     try {
       const items = await loadFriendBagItems(owner.id);
       if (itemsLoadIdRef.current === loadId) {
-        setBagItems(items);
+        setBagItemsByOwner((current) => ({ ...current, [owner.id]: items }));
       }
     } catch (error) {
       console.warn('Failed to load explore bag items', error);
       if (itemsLoadIdRef.current === loadId) {
-        setBagItems([]);
+        setBagItemsByOwner((current) => ({ ...current, [owner.id]: [] }));
       }
     } finally {
       if (itemsLoadIdRef.current === loadId) {
-        setIsLoadingItems(false);
+        setLoadingOwnerId(null);
       }
     }
   }, []);
@@ -725,72 +787,64 @@ export default function ExploreScreen() {
     void loadOwnerBag(owners[currentIndex] ?? null);
   }, [owners, currentIndex, loadOwnerBag]);
 
-  // direction 1 = 다음 가방, -1 = 이전 가방
-  const goToOffset = useCallback(
-    (direction: 1 | -1) => {
-      const list = ownersRef.current;
-      if (list.length <= 1) {
-        Animated.spring(translateX, { toValue: 0, useNativeDriver: true }).start();
+  const handleCarouselSnap = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (carouselData.length === 0) {
         return;
       }
 
-      const width = windowWidthRef.current;
-      isAnimatingRef.current = true;
+      const rawLoopIndex = Math.round(event.nativeEvent.contentOffset.x / slideDistance);
+      const maxLoopIndex = carouselData.length - 1;
+      const loopIndex = Math.max(0, Math.min(maxLoopIndex, rawLoopIndex));
+      const entry = carouselData[loopIndex];
 
-      Animated.timing(translateX, {
-        toValue: -direction * width,
-        duration: SWIPE_ANIM_MS,
-        useNativeDriver: true,
-      }).start(() => {
-        const len = list.length;
-        const next = (indexRef.current + direction + len) % len;
-        // 새 가방으로 바뀌는 즉시 로딩 상태로 만들어 이전 가방이 깜빡이지 않게 한다.
-        setBagItems([]);
-        setIsLoadingItems(true);
-        setCurrentIndex(next);
-        translateX.setValue(direction * width);
-        Animated.timing(translateX, {
-          toValue: 0,
-          duration: SWIPE_ANIM_MS,
-          useNativeDriver: true,
-        }).start(() => {
-          isAnimatingRef.current = false;
-        });
-      });
+      if (!entry) {
+        return;
+      }
+
+      setCurrentIndex(entry.realIndex);
+
+      if (ownersCount > 1 && loopIndex === 0) {
+        const nextLoopIndex = ownersCount;
+        setActiveLoopIndex(nextLoopIndex);
+        scrollToLoopIndex(nextLoopIndex);
+        return;
+      }
+
+      if (ownersCount > 1 && loopIndex === ownersCount + 1) {
+        setActiveLoopIndex(1);
+        scrollToLoopIndex(1);
+        return;
+      }
+
+      setActiveLoopIndex(loopIndex);
     },
-    [translateX],
+    [carouselData, ownersCount, scrollToLoopIndex, slideDistance],
   );
 
-  const goToOffsetRef = useRef(goToOffset);
-  goToOffsetRef.current = goToOffset;
+  const renderCarouselItem = useCallback(
+    ({ item }: { item: ExploreCarouselEntry }) => {
+      const isActiveCard = item.loopIndex === activeLoopIndex;
+      const hasBagCache = Object.prototype.hasOwnProperty.call(bagItemsByOwner, item.owner.id);
+      const bagItems = bagItemsByOwner[item.owner.id] ?? [];
+      const isBagLoading = !hasBagCache || loadingOwnerId === item.owner.id;
 
-  // 빈 공간(물건이 아닌 곳)을 좌우로 밀어 다른 사람의 가방으로 넘어간다.
-  // 물건(PhysicsPhoto)은 onStart 단계에서 자기 터치를 가로채므로 이 스와이프가 발동하지 않는다.
-  const swipeResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: (_, gesture) =>
-        !isAnimatingRef.current &&
-        Math.abs(gesture.dx) > 16 &&
-        Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.3,
-      onPanResponderMove: (_, gesture) => {
-        translateX.setValue(gesture.dx);
-      },
-      onPanResponderRelease: (_, gesture) => {
-        const threshold = Math.min(windowWidthRef.current * 0.25, 90);
-        if (gesture.dx <= -threshold) {
-          goToOffsetRef.current(1);
-        } else if (gesture.dx >= threshold) {
-          goToOffsetRef.current(-1);
-        } else {
-          Animated.spring(translateX, { toValue: 0, useNativeDriver: true, bounciness: 6 }).start();
-        }
-      },
-      onPanResponderTerminate: () => {
-        Animated.spring(translateX, { toValue: 0, useNativeDriver: true }).start();
-      },
-    }),
-  ).current;
+      if (!isActiveCard) {
+        return <ExploreSidePreview owner={item.owner} cardWidth={cardWidth} />;
+      }
+
+      return (
+        <ExploreBagCanvas
+          owner={item.owner}
+          items={bagItems}
+          isLoading={isBagLoading}
+          cardWidth={cardWidth}
+          onOpenPhotoInfo={setSelectedPhotoInfo}
+        />
+      );
+    },
+    [activeLoopIndex, bagItemsByOwner, cardWidth, loadingOwnerId],
+  );
 
   const currentOwner = owners[currentIndex] ?? null;
 
@@ -815,16 +869,55 @@ export default function ExploreScreen() {
           </Text>
         </View>
       ) : (
-        <View style={styles.swipeArea} {...swipeResponder.panHandlers}>
-          <Animated.View style={[styles.swipeInner, { transform: [{ translateX }] }]}>
-            <ExploreBagCanvas
-              key={currentOwner.id}
-              owner={currentOwner}
-              items={bagItems}
-              isLoading={isLoadingItems}
-              onOpenPhotoInfo={setSelectedPhotoInfo}
-            />
-          </Animated.View>
+        <View style={styles.swipeArea}>
+          <FlatList
+            ref={carouselRef}
+            data={carouselData}
+            keyExtractor={(item) => `${item.owner.id}-${item.loopIndex}`}
+            renderItem={renderCarouselItem}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            snapToInterval={slideDistance}
+            snapToAlignment="start"
+            decelerationRate="fast"
+            disableIntervalMomentum
+            bounces={false}
+            overScrollMode="never"
+            initialScrollIndex={initialLoopIndex}
+            getItemLayout={(_, index) => ({
+              length: slideDistance,
+              offset: slideDistance * index,
+              index,
+            })}
+            contentContainerStyle={[
+              styles.carouselContent,
+              { paddingHorizontal: (windowWidth - cardWidth) / 2 },
+            ]}
+            ItemSeparatorComponent={() => <View style={{ width: EXPLORE_CARD_GAP }} />}
+            onMomentumScrollEnd={handleCarouselSnap}
+            onScrollToIndexFailed={({ index }) => {
+              scrollToLoopIndex(index);
+            }}
+            extraData={{
+              activeLoopIndex,
+              bagItemsByOwner,
+              loadingOwnerId,
+              cardWidth,
+            }}
+          />
+          {owners.length > 1 ? (
+            <View style={styles.paginationDots} pointerEvents="none">
+              {owners.map((owner, index) => (
+                <View
+                  key={owner.id}
+                  style={[
+                    styles.paginationDot,
+                    index === currentIndex ? styles.paginationDotActive : undefined,
+                  ]}
+                />
+              ))}
+            </View>
+          ) : null}
         </View>
       )}
     </View>
@@ -874,12 +967,28 @@ const styles = StyleSheet.create({
     flex: 1,
     overflow: 'hidden',
   },
-  swipeInner: {
-    flex: 1,
+  carouselContent: {
+    alignItems: 'stretch',
+  },
+  paginationDots: {
+    height: 26,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingBottom: 8,
+  },
+  paginationDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: 'rgba(199, 184, 234, 0.32)',
+  },
+  paginationDotActive: {
+    backgroundColor: Brand.primary,
   },
   bagPanel: {
     flex: 1,
-    marginHorizontal: 14,
     marginTop: 8,
     marginBottom: 12,
     overflow: 'hidden',
@@ -887,6 +996,49 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: Brand.border,
     backgroundColor: Brand.surface,
+  },
+  sidePreviewCard: {
+    marginTop: 8,
+    marginBottom: 12,
+    overflow: 'hidden',
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: Brand.border,
+    backgroundColor: Brand.surface,
+    opacity: 0.88,
+  },
+  sidePreviewHeader: {
+    minHeight: 50,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    backgroundColor: Brand.surface,
+  },
+  sidePreviewAvatar: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: Brand.primary,
+  },
+  sidePreviewTextBlock: {
+    flex: 1,
+    gap: 2,
+  },
+  sidePreviewUser: {
+    color: Brand.text,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  sidePreviewSub: {
+    color: Brand.muted,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  sidePreviewBody: {
+    flex: 1,
+    backgroundColor: Brand.secondary,
   },
   bagPanelHeader: {
     minHeight: 50,
