@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Brand } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import {
@@ -33,23 +34,27 @@ import {
 type SettingsAction = {
   id: string;
   label: string;
+  icon: Parameters<typeof IconSymbol>[0]['name'];
 };
 
 type AccountEditMode = 'email' | 'password';
 
 const accountActions: SettingsAction[] = [
-  { id: 'password', label: '비밀번호 변경' },
-  { id: 'email', label: '이메일 변경' },
+  { id: 'password', label: '비밀번호 변경', icon: 'lock.fill' },
+  { id: 'email', label: '이메일 변경', icon: 'envelope.fill' },
 ];
 
 const friendActions: SettingsAction[] = [
-  { id: 'friends', label: '친구 관리' },
+  { id: 'friends', label: '친구 관리', icon: 'person.2.fill' },
 ];
 
 const supportActions: SettingsAction[] = [
-  { id: 'guide', label: '이용 안내' },
-  { id: 'contact', label: '문의하기' },
-  { id: 'logout', label: '로그아웃' },
+  { id: 'guide', label: '이용 안내', icon: 'info.circle.fill' },
+  { id: 'contact', label: '문의하기', icon: 'questionmark.circle.fill' },
+];
+
+const logoutActions: SettingsAction[] = [
+  { id: 'logout', label: '로그아웃', icon: 'rectangle.portrait.and.arrow.right' },
 ];
 
 const defaultProfileImage =
@@ -83,30 +88,52 @@ function getAccountErrorMessage(error: unknown) {
 }
 
 function SettingsGroup({
+  title,
   actions,
   onActionPress,
 }: {
+  title?: string;
   actions: SettingsAction[];
   onActionPress?: (action: SettingsAction) => void;
 }) {
   return (
-    <View style={styles.group}>
-      {actions.map((action, index) => (
-        <Pressable
-          key={action.id}
-          style={({ pressed }) => [
-            styles.action,
-            index < actions.length - 1 ? styles.actionDivider : undefined,
-            pressed ? styles.actionPressed : undefined,
-          ]}
-          onPress={() => onActionPress?.(action)}
-        >
-          <Text style={[styles.actionText, action.id === 'logout' ? styles.logoutText : undefined]}>
-            {action.label}
-          </Text>
-          <Text style={styles.chevron}>›</Text>
-        </Pressable>
-      ))}
+    <View style={styles.section}>
+      {title ? <Text style={styles.sectionTitle}>{title}</Text> : null}
+      <View style={styles.group}>
+        {actions.map((action, index) => {
+          const isLogout = action.id === 'logout';
+
+          return (
+            <Pressable
+              key={action.id}
+              style={({ pressed }) => [
+                styles.action,
+                index < actions.length - 1 ? styles.actionDivider : undefined,
+                pressed ? styles.actionPressed : undefined,
+              ]}
+              onPress={() => onActionPress?.(action)}
+            >
+              <View style={styles.actionLeft}>
+                <View style={[styles.actionIconBox, isLogout ? styles.logoutIconBox : undefined]}>
+                  <IconSymbol
+                    name={action.icon}
+                    size={18}
+                    color={isLogout ? Brand.danger : Brand.lavenderDeep}
+                  />
+                </View>
+                <Text style={[styles.actionText, isLogout ? styles.logoutText : undefined]}>
+                  {action.label}
+                </Text>
+              </View>
+              <IconSymbol
+                name="chevron.right"
+                size={24}
+                color={isLogout ? Brand.danger : Brand.muted}
+              />
+            </Pressable>
+          );
+        })}
+      </View>
     </View>
   );
 }
@@ -580,10 +607,12 @@ export default function SettingsScreen() {
           styles.content,
           {
             paddingTop: insets.top + 28,
-            paddingBottom: insets.bottom + 28,
+            paddingBottom: 46,
           },
         ]}
-        contentInsetAdjustmentBehavior="automatic"
+        contentInsetAdjustmentBehavior="never"
+        bounces={false}
+        overScrollMode="never"
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.profile}>
@@ -602,7 +631,7 @@ export default function SettingsScreen() {
               onPress={showProfileImageOptions}
               disabled={isProfileImageSaving}
             >
-              <Text style={styles.profileAddText}>+</Text>
+              <IconSymbol name="camera.fill" size={19} color={Brand.lavenderDeep} />
             </Pressable>
             {isProfileImageSaving ? (
               <View style={styles.profileImageSaving}>
@@ -613,9 +642,10 @@ export default function SettingsScreen() {
           <Text style={styles.profileName}>{displayName}</Text>
         </View>
 
-        <SettingsGroup actions={accountActions} onActionPress={handleAccountAction} />
-        <SettingsGroup actions={friendActions} onActionPress={handleFriendAction} />
-        <SettingsGroup actions={supportActions} onActionPress={handleSupportAction} />
+        <SettingsGroup title="계정 설정" actions={accountActions} onActionPress={handleAccountAction} />
+        <SettingsGroup title="친구 관리" actions={friendActions} onActionPress={handleFriendAction} />
+        <SettingsGroup title="도움말" actions={supportActions} onActionPress={handleSupportAction} />
+        <SettingsGroup title="" actions={logoutActions} onActionPress={handleSupportAction} />
       </ScrollView>
     </>
   );
@@ -624,11 +654,11 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: Brand.secondary,
+    backgroundColor: Brand.surfaceWarm,
   },
   content: {
     paddingHorizontal: 18,
-    gap: 18,
+    gap: 12,
   },
   accountOverlay: {
     flex: 1,
@@ -869,49 +899,50 @@ const styles = StyleSheet.create({
   profile: {
     alignItems: 'center',
     gap: 12,
-    paddingVertical: 22,
-    borderRadius: 8,
+    paddingTop: 22,
+    paddingBottom: 24,
+    borderRadius: 28,
     borderWidth: 1,
     borderColor: Brand.borderSoft,
     backgroundColor: Brand.surfaceElevated,
     shadowColor: Brand.text,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.06,
-    shadowRadius: 16,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.08,
+    shadowRadius: 22,
+    elevation: 7,
   },
   profileImageWrap: {
     position: 'relative',
-    width: 104,
-    height: 104,
+    width: 118,
+    height: 108,
     alignItems: 'center',
     justifyContent: 'center',
   },
   profileImage: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
+    width: 98,
+    height: 98,
+    borderRadius: 49,
     backgroundColor: Brand.surface,
     borderWidth: 3,
     borderColor: Brand.primary,
   },
   profileAddButton: {
     position: 'absolute',
-    right: 2,
+    right: 8,
     bottom: 2,
-    width: 32,
-    height: 32,
+    width: 38,
+    height: 38,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 16,
+    borderRadius: 19,
     backgroundColor: Brand.surface,
-    borderWidth: 2,
+    borderWidth: 1,
     borderColor: Brand.borderSoft,
     shadowColor: Brand.text,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 7,
   },
   profileAddButtonPressed: {
     opacity: 0.72,
@@ -920,43 +951,46 @@ const styles = StyleSheet.create({
   profileAddButtonDisabled: {
     opacity: 0.58,
   },
-  profileAddText: {
-    color: Brand.text,
-    fontSize: 24,
-    lineHeight: 26,
-    fontWeight: '900',
-  },
   profileImageSaving: {
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 52,
+    borderRadius: 61,
     backgroundColor: 'rgba(17, 24, 39, 0.36)',
   },
   profileName: {
     color: Brand.text,
-    fontSize: 20,
-    fontWeight: '900',
+    fontSize: 18,
+    fontWeight: '800',
     textAlign: 'center',
+  },
+  section: {
+    gap: 6,
+  },
+  sectionTitle: {
+    paddingHorizontal: 26,
+    color: Brand.muted,
+    fontSize: 13,
+    fontWeight: '800',
   },
   group: {
     overflow: 'hidden',
     backgroundColor: Brand.surfaceElevated,
     borderColor: Brand.borderSoft,
-    borderRadius: 8,
+    borderRadius: 22,
     borderWidth: 1,
     shadowColor: Brand.text,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.05,
-    shadowRadius: 14,
-    elevation: 3,
+    shadowRadius: 18,
+    elevation: 4,
   },
   action: {
-    minHeight: 56,
+    minHeight: 54,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
+    paddingHorizontal: 22,
   },
   actionPressed: {
     backgroundColor: Brand.surfaceWarm,
@@ -965,10 +999,27 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Brand.borderSoft,
   },
+  actionLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  actionIconBox: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 10,
+    backgroundColor: '#F5EEFF',
+  },
+  logoutIconBox: {
+    backgroundColor: '#FFF0EE',
+  },
   actionText: {
     color: Brand.text,
-    fontSize: 16,
-    fontWeight: '800',
+    fontSize: 14,
+    fontWeight: '700',
   },
   logoutText: {
     color: Brand.danger,
