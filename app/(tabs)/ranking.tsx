@@ -44,6 +44,18 @@ function getObjectName(item: SavedBagItem) {
   return item.objectLabel?.trim() || '이름 미등록';
 }
 
+function isItemFromToday(item: SavedBagItem) {
+  const itemDate = new Date(item.createdAt);
+  if (Number.isNaN(itemDate.getTime())) return false;
+
+  const now = new Date();
+  return (
+    itemDate.getFullYear() === now.getFullYear() &&
+    itemDate.getMonth() === now.getMonth() &&
+    itemDate.getDate() === now.getDate()
+  );
+}
+
 function ObjectRail({ items }: { items: SavedBagItem[] }) {
   if (items.length === 0) {
     return (
@@ -214,9 +226,7 @@ export default function StoryScreen() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [objectsExpanded, setObjectsExpanded] = useState(true);
 
-  // '내 가방'은 날짜와 상관없이 유지되는 Current Bag이므로,
-  // 이야기의 주인공도 현재 가방에 담긴 물건 전체를 그대로 사용한다.
-  const todayItems = items;
+  const todayItems = useMemo(() => items.filter(isItemFromToday), [items]);
   const todayObjectSummary = useMemo(() => {
     if (todayItems.length === 0) return '오늘 수집한 물건이 아직 없어요';
     const names = todayItems.map(getObjectName);
@@ -432,13 +442,16 @@ export default function StoryScreen() {
               </View>
 
               <View style={styles.creativityControl}>
-                <View style={styles.creativityTrack}>
-                  <View
-                    style={[
-                      styles.creativityTrackFill,
-                      { width: `${((creativity - 1) / 8) * 100}%` as `${number}%` },
-                    ]}
-                  />
+                <View style={styles.creativityTrackSegments}>
+                  {Array.from({ length: 8 }, (_, index) => (
+                    <View
+                      key={index}
+                      style={[
+                        styles.creativityTrackSegment,
+                        index < creativity - 1 && styles.creativityTrackSegmentActive,
+                      ]}
+                    />
+                  ))}
                 </View>
                 <View style={styles.creativityStops}>
                   {Array.from({ length: 9 }, (_, index) => index + 1).map((value) => {
@@ -597,12 +610,13 @@ const styles = StyleSheet.create({
   creativityBadge: { flexDirection: 'row', alignItems: 'baseline', marginLeft: 8, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 11, backgroundColor: '#EEE7FA' },
   creativityBadgeValue: { color: '#725E98', fontSize: 15, fontWeight: '900' },
   creativityBadgeTotal: { color: '#9B8DAF', fontSize: 9, fontWeight: '800' },
-  creativityControl: { position: 'relative', height: 62, marginTop: 19, paddingHorizontal: 1 },
-  creativityTrack: { position: 'absolute', left: 17, right: 17, top: 16, height: 4, borderRadius: 2, backgroundColor: '#E8E1E3', overflow: 'hidden' },
-  creativityTrackFill: { height: 4, borderRadius: 2, backgroundColor: '#9A82C8' },
-  creativityStops: { flexDirection: 'row', justifyContent: 'space-between' },
-  creativityStopButton: { width: 34, height: 58, alignItems: 'center' },
-  creativityStop: { width: 12, height: 12, marginTop: 12, borderRadius: 6, backgroundColor: '#DAD2D6', borderWidth: 2, borderColor: Brand.surface },
+  creativityControl: { position: 'relative', height: 62, marginTop: 19, paddingHorizontal: 0 },
+  creativityTrackSegments: { position: 'absolute', left: 16, right: 16, top: 16, height: 4, flexDirection: 'row' },
+  creativityTrackSegment: { flex: 1, height: 4, backgroundColor: '#E8E1E3' },
+  creativityTrackSegmentActive: { backgroundColor: '#9A82C8' },
+  creativityStops: { flexDirection: 'row' },
+  creativityStopButton: { flex: 1, minWidth: 0, height: 58, alignItems: 'center' },
+  creativityStop: { width: 12, height: 12, marginTop: 12, borderRadius: 6, backgroundColor: '#DAD2D6', borderWidth: 1, borderColor: '#E8E1E3' },
   creativityStopActive: { backgroundColor: '#A992D2' },
   creativityStopSelected: { width: 22, height: 22, marginTop: 7, borderRadius: 11, backgroundColor: '#8166B4', borderWidth: 5, borderColor: '#E9E0F7', shadowColor: '#6C549A', shadowOpacity: 0.18, shadowRadius: 5, shadowOffset: { width: 0, height: 2 } },
   creativityStopNumber: { marginTop: 7, color: '#AAA1A5', fontSize: 9, fontWeight: '700' },
