@@ -1419,18 +1419,27 @@ function StoryReaderModal({
   onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = Dimensions.get("window");
   if (!story) return null;
 
   const theme = storyTheme(story);
   const image = story.illustrationUrl || story.imageUrls?.[0];
+  const imageHeight = Math.min(300, Math.max(210, windowHeight * 0.28));
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.readerBackdrop} onPress={onClose}>
-        <Pressable style={[styles.readerSheet, { paddingBottom: insets.bottom + 14 }]} onPress={() => {}}>
+      <View style={styles.readerBackdrop}>
+        <Pressable style={styles.readerBackdropDismiss} onPress={onClose} />
+        <View style={[styles.readerSheet, { paddingBottom: insets.bottom + 24 }]}>
           <View style={styles.readerHandle} />
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.readerScroll}>
-            {image ? <Image source={{ uri: image }} style={styles.readerImage} resizeMode="cover" /> : null}
+          <ScrollView
+            style={styles.readerScroller}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.readerScroll}
+            nestedScrollEnabled
+            bounces
+          >
+            {image ? <Image source={{ uri: image }} style={[styles.readerImage, { height: imageHeight }]} resizeMode="cover" /> : null}
             <View style={styles.readerBody}>
               <View style={styles.readerMetaRow}>
                 <View style={[styles.emotionChip, { backgroundColor: theme.color }]}>
@@ -1455,8 +1464,8 @@ function StoryReaderModal({
           <Pressable style={styles.readerClose} onPress={onClose}>
             <Text style={styles.readerCloseText}>책 덮기</Text>
           </Pressable>
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }
@@ -3279,8 +3288,11 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(26,22,34,0.55)",
     justifyContent: "flex-end",
   },
+  readerBackdropDismiss: {
+    ...StyleSheet.absoluteFillObject,
+  },
   readerSheet: {
-    maxHeight: "88%",
+    height: "86%",
     backgroundColor: Brand.surface,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
@@ -3295,12 +3307,14 @@ const styles = StyleSheet.create({
     backgroundColor: "#D8CFE0",
     marginBottom: 6,
   },
+  readerScroller: {
+    flex: 1,
+  },
   readerScroll: {
-    paddingBottom: 12,
+    paddingBottom: 24,
   },
   readerImage: {
     width: "100%",
-    aspectRatio: 4 / 3,
     backgroundColor: Brand.secondary,
   },
   readerBody: {
@@ -3364,7 +3378,7 @@ const styles = StyleSheet.create({
   },
   readerClose: {
     marginHorizontal: 22,
-    marginTop: 8,
+    marginTop: 16,
     height: 52,
     borderRadius: 18,
     backgroundColor: Brand.text,
