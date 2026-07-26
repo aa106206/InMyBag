@@ -211,11 +211,13 @@ function PhysicsPhoto({
   frame,
   worldSize,
   onOpenPhotoInfo,
+  onDragActiveChange,
 }: {
   photo: PhysicsPhotoItem;
   frame: number;
   worldSize: WorldSize;
   onOpenPhotoInfo: (item: SavedBagItem) => void;
+  onDragActiveChange: (active: boolean) => void;
 }) {
   void frame;
 
@@ -226,9 +228,11 @@ function PhysicsPhoto({
   const dragFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onOpenPhotoInfoRef = useRef(onOpenPhotoInfo);
+  const onDragActiveChangeRef = useRef(onDragActiveChange);
   bodyRef.current = photo.body;
   worldSizeRef.current = worldSize;
   onOpenPhotoInfoRef.current = onOpenPhotoInfo;
+  onDragActiveChangeRef.current = onDragActiveChange;
 
   const clearDragFallback = () => {
     if (dragFallbackRef.current) {
@@ -249,6 +253,7 @@ function PhysicsPhoto({
     clearDragFallback();
     clearLongPressTimer();
     isDraggingRef.current = false;
+    onDragActiveChangeRef.current(false);
     Body.setPosition(body, clampPhotoPosition(body.position, worldSizeRef.current, photo.size));
     Body.setStatic(body, false);
     Body.setVelocity(body, velocity);
@@ -270,6 +275,7 @@ function PhysicsPhoto({
       if (isDraggingRef.current) {
         const body = bodyRef.current;
         isDraggingRef.current = false;
+        onDragActiveChangeRef.current(false);
         Body.setStatic(body, false);
       }
     },
@@ -287,6 +293,7 @@ function PhysicsPhoto({
       onPanResponderGrant: () => {
         const body = bodyRef.current;
         isDraggingRef.current = true;
+        onDragActiveChangeRef.current(true);
         clearLongPressTimer();
         longPressTimerRef.current = setTimeout(() => {
           onOpenPhotoInfoRef.current(photo);
@@ -471,12 +478,14 @@ function ExploreBagCanvas({
   isLoading,
   cardWidth,
   onOpenPhotoInfo,
+  onDragActiveChange,
 }: {
   owner: ExploreOwner;
   items: SavedBagItem[];
   isLoading: boolean;
   cardWidth: number;
   onOpenPhotoInfo: (info: SelectedPhotoInfo) => void;
+  onDragActiveChange: (active: boolean) => void;
 }) {
   const engineRef = useRef(Engine.create({ gravity: { x: 0, y: 0, scale: 0.002 } }));
   const wallsRef = useRef<Matter.Body[]>([]);
@@ -645,6 +654,7 @@ function ExploreBagCanvas({
                   frame={frame}
                   worldSize={worldSizeRef.current}
                   onOpenPhotoInfo={(item) => onOpenPhotoInfo({ item, ownerName: ownerHandle })}
+                  onDragActiveChange={onDragActiveChange}
                 />
               ))}
             </>
@@ -670,6 +680,8 @@ export default function ExploreScreen() {
   const [bagItemsByOwner, setBagItemsByOwner] = useState<Record<string, SavedBagItem[]>>({});
   const [loadingOwnerId, setLoadingOwnerId] = useState<string | null>(null);
   const [selectedPhotoInfo, setSelectedPhotoInfo] = useState<SelectedPhotoInfo | null>(null);
+  // 물건을 잡고 있는 동안에는 캐러셀 좌우 스크롤을 잠근다.
+  const [isPhotoDragging, setIsPhotoDragging] = useState(false);
 
   const carouselRef = useRef<FlatList<ExploreCarouselEntry>>(null);
   const itemsLoadIdRef = useRef(0);
@@ -835,6 +847,7 @@ export default function ExploreScreen() {
           isLoading={isBagLoading}
           cardWidth={cardWidth}
           onOpenPhotoInfo={setSelectedPhotoInfo}
+          onDragActiveChange={setIsPhotoDragging}
         />
       );
     },
@@ -871,6 +884,7 @@ export default function ExploreScreen() {
             keyExtractor={(item) => `${item.owner.id}-${item.loopIndex}`}
             renderItem={renderCarouselItem}
             horizontal
+            scrollEnabled={!isPhotoDragging}
             showsHorizontalScrollIndicator={false}
             snapToInterval={slideDistance}
             snapToAlignment="start"
