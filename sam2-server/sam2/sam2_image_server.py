@@ -1,7 +1,10 @@
 import base64
+import hashlib
 import importlib.util
 import io
 import logging
+import os
+import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
@@ -11,7 +14,7 @@ import requests
 import torch
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from PIL import Image
+from PIL import Image, ImageFilter
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
@@ -79,17 +82,40 @@ def get_dino_module():
     return module
 
 
+# 크기별 SAM2 체크포인트와 설정. small이 large보다 수 배 빠르고 컷아웃 품질 차이는 크지 않아
+# 촬영 응답 속도를 위해 small을 기본으로 씁니다. SAM2_MODEL=large 로 되돌릴 수 있습니다.
+SAM2_MODEL_VARIANTS = {
+    "small": ("checkpoints/sam2.1_hiera_small.pt", "configs/sam2.1/sam2.1_hiera_s.yaml"),
+    "large": ("checkpoints/sam2.1_hiera_large.pt", "configs/sam2.1/sam2.1_hiera_l.yaml"),
+}
+
+
 @lru_cache(maxsize=1)
 def get_predictor() -> SAM2ImagePredictor:
     """SAM2 모델은 무겁기 때문에 서버 실행 중 한 번만 로딩해서 재사용합니다."""
-    # checkpoint = APP_ROOT / "checkpoints/sam2.1_hiera_small.pt"
-    # model_cfg = "configs/sam2.1/sam2.1_hiera_s.yaml"
+    preferred = os.environ.get("SAM2_MODEL", "small").lower()
+    if preferred not in SAM2_MODEL_VARIANTS:
+        preferred = "small"
 
-    checkpoint = APP_ROOT / "checkpoints/sam2.1_hiera_large.pt"
-    model_cfg = "configs/sam2.1/sam2.1_hiera_l.yaml"
+    # 선호 모델의 체크포인트가 없으면 받아 둔 다른 크기로 폴백합니다.
+    order = [preferred] + [name for name in SAM2_MODEL_VARIANTS if name != preferred]
+    checkpoint = None
+    model_cfg = None
+    for name in order:
+        ckpt_rel, cfg = SAM2_MODEL_VARIANTS[name]
+        candidate = APP_ROOT / ckpt_rel
+        if candidate.exists():
+            if name != preferred:
+                logger.warning("SAM2 %s checkpoint not found. Falling back to %s.", preferred, name)
+            logger.info("Using SAM2 %s model", name)
+            checkpoint = candidate
+            model_cfg = cfg
+            break
 
-    if not checkpoint.exists():
-        raise RuntimeError(f"SAM2 checkpoint not found: {checkpoint}")
+    if checkpoint is None or model_cfg is None:
+        raise RuntimeError(
+            f"SAM2 checkpoint not found in {APP_ROOT / 'checkpoints'}"
+        )
 
     # Mac Apple Silicon은 mps, NVIDIA GPU는 cuda, 그 외 환경은 cpu를 사용합니다.
     if torch.backends.mps.is_available():
@@ -274,12 +300,58 @@ def _crop_with_padding(
     return rgba.crop((x0, y0, x1, y1))
 
 
+# 잘라낸 물건 겉에 두르는 검은 스티커 테두리 두께(px)와,
+# 지그재그 마스크 윤곽을 둥글게 다듬는 정도(blur 반경, px)입니다.
+STICKER_OUTLINE_WIDTH = 7
+STICKER_OUTLINE_SMOOTH = 4
+
+
+def _add_sticker_outline(
+    cutout: Image.Image,
+    outline_width: int = STICKER_OUTLINE_WIDTH,
+) -> Image.Image:
+    """마스크 경계가 삐뚤빼뚤해도 티가 나지 않도록 물건 겉에 검은 테두리를 입힙니다.
+
+    물건 알파를 바깥으로 팽창시켜 테두리 실루엣을 만들고, blur 후 재이진화로
+    계단 모양 윤곽을 둥글게 다듬은 다음 물건 아래에 검은 레이어로 깝니다.
+    원래의 거친 경계는 검은 테두리 위에 놓여 가려집니다.
+    """
+    margin = outline_width + STICKER_OUTLINE_SMOOTH + 2
+    padded = Image.new(
+        "RGBA",
+        (cutout.width + margin * 2, cutout.height + margin * 2),
+        (0, 0, 0, 0),
+    )
+    padded.paste(cutout, (margin, margin), cutout)
+
+    alpha = padded.getchannel("A")
+
+    outline_alpha = alpha.filter(ImageFilter.MaxFilter(outline_width * 2 + 1))
+    outline_alpha = outline_alpha.filter(ImageFilter.GaussianBlur(STICKER_OUTLINE_SMOOTH))
+    outline_alpha = outline_alpha.point(lambda value: 255 if value >= 128 else 0)
+    # 테두리 바깥 경계의 계단 현상만 1px 정도 부드럽게 풀어줍니다.
+    outline_alpha = outline_alpha.filter(ImageFilter.GaussianBlur(1))
+
+    outline_layer = Image.new("RGBA", padded.size, (0, 0, 0, 255))
+    outline_layer.putalpha(outline_alpha)
+
+    # 물건 자체의 경계도 살짝 풀어, 검은 테두리와 자연스럽게 섞이게 합니다.
+    padded.putalpha(alpha.filter(ImageFilter.GaussianBlur(1)))
+
+    return Image.alpha_composite(outline_layer, padded)
+
+
 def _png_data_uri(image: Image.Image) -> str:
     """앱에서 바로 Image uri로 사용할 수 있도록 PNG를 data URI 문자열로 변환합니다."""
     output = io.BytesIO()
     image.save(output, format="PNG")
     encoded = base64.b64encode(output.getvalue()).decode("ascii")
     return f"data:image/png;base64,{encoded}"
+
+
+# 직전에 set_image까지 마친 사진의 해시. 같은 사진으로 다시 요청하면 인코딩을 재사용한다.
+# (/segment는 이벤트 루프에서 순차 실행되므로 동시 접근 걱정 없이 써도 안전하다.)
+_last_segment_image: dict[str, Any] = {"hash": None}
 
 
 def segment_image_bytes(
@@ -312,18 +384,37 @@ def segment_image_bytes(
     )
 
     predictor = get_predictor()
+    # 같은 사진으로 박스만 바꿔 다시 분리하는 경우, 무거운 이미지 인코딩(set_image)을 건너뜁니다.
+    image_hash = hashlib.md5(image_bytes).hexdigest()
+    encode_reused = _last_segment_image["hash"] == image_hash
+    set_image_ms = 0.0
+
     with torch.inference_mode():
-        predictor.set_image(image_array)
+        if not encode_reused:
+            set_image_started = time.perf_counter()
+            predictor.set_image(image_array)
+            set_image_ms = (time.perf_counter() - set_image_started) * 1000
+            _last_segment_image["hash"] = image_hash
+
         center_x = (prompt_box[0] + prompt_box[2]) / 2
         center_y = (prompt_box[1] + prompt_box[3]) / 2
         # multimask_output=True라서 SAM2가 후보 마스크 여러 개와 점수를 반환합니다.
         # box에 중심 positive point를 함께 주면 박스 안의 작은 색 영역보다 중심 물체를 더 강하게 봅니다.
+        predict_started = time.perf_counter()
         masks, scores, _ = predictor.predict(
             point_coords=np.array([[center_x, center_y]], dtype=np.float32),
             point_labels=np.array([1], dtype=np.int32),
             box=prompt_box,
             multimask_output=True,
         )
+        predict_ms = (time.perf_counter() - predict_started) * 1000
+
+    logger.info(
+        "segment timings(ms): set_image=%.0f (reused=%s) predict=%.0f",
+        set_image_ms,
+        encode_reused,
+        predict_ms,
+    )
 
     # SAM2 점수 1등이 항상 "하나의 물체 전체"는 아닙니다.
     # 그림자/로고/색 영역처럼 작은 후보를 피하기 위해 면적 기반 후처리로 다시 고릅니다.
@@ -335,7 +426,7 @@ def segment_image_bytes(
         overlay_image = image.convert("RGBA")
         bbox_list = [0, 0, width, height]
     else:
-        cutout = _crop_with_padding(image, best_mask, bbox)
+        cutout = _add_sticker_outline(_crop_with_padding(image, best_mask, bbox))
         overlay_image = _make_mask_overlay(image, best_mask)
         bbox_list = list(bbox)
 
@@ -370,7 +461,9 @@ async def detect(request: Request) -> dict[str, Any]:
     try:
         content_type = request.headers.get("content-type") or "image/jpeg"
         dino = get_dino_module()
-        return dino.detect_image_bytes(image_bytes, mime_type=content_type)
+        result = dino.detect_image_bytes(image_bytes, mime_type=content_type)
+        logger.info("detect timings(ms): %s", result.get("timingsMs"))
+        return result
     except Exception as exc:
         logger.exception("Grounding DINO detection failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
