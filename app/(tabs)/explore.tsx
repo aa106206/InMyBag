@@ -1,5 +1,5 @@
-import { Accelerometer } from 'expo-sensors';
 import { useFocusEffect } from 'expo-router';
+import { Accelerometer } from 'expo-sensors';
 import Matter, { Bodies, Body, Engine, World } from 'matter-js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -862,7 +862,7 @@ export default function ExploreScreen() {
 
       <View style={styles.header}>
         <Text style={styles.headerTitle}>둘러보기</Text>
-        <Text style={styles.headerHint}>빈 공간을 좌우로 밀어 다른 사람의 가방을 구경해요.</Text>
+        <Text style={styles.headerHint}>회원님을 위한 추천</Text>
       </View>
 
       {isLoadingOwners ? (

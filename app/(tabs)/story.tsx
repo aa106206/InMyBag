@@ -322,8 +322,7 @@ export default function StoryScreen() {
           <View style={styles.headerRow}>
             <View>
               <Text style={styles.eyebrow}>SNAP STORY</Text>
-              <Text style={styles.pageTitle}>오늘의 이야기</Text>
-              <Text style={styles.pageSubtitle}>가방 속 물건들이 하나의 그림일기가 돼요.</Text>
+              <Text style={styles.pageTitle}>이야기 생성</Text>
             </View>
             <Pressable style={styles.historyButton} onPress={() => setHistoryOpen(true)}>
               <Text style={styles.historyIcon}>☰</Text>
@@ -337,18 +336,18 @@ export default function StoryScreen() {
               onPress={() => setObjectsExpanded((value) => !value)}
               accessibilityRole="button"
               accessibilityState={{ expanded: objectsExpanded }}
-              accessibilityLabel={`오늘의 물건 ${todayItems.length}개 ${objectsExpanded ? '접기' : '펼치기'}`}
+              accessibilityLabel={`오늘 담은 물건들 ${todayItems.length}개 ${objectsExpanded ? '접기' : '펼치기'}`}
             >
               <Text style={styles.stepLabel}>01</Text>
               <View style={styles.objectsTitleCopy}>
                 <View style={styles.objectsTitleRow}>
-                  <Text style={styles.sectionTitle}>오늘의 물건</Text>
+                  <Text style={styles.sectionTitle}>오늘 담은 물건들</Text>
                   <View style={styles.objectCountBadge}>
                     <Text style={styles.objectCountText}>{todayItems.length}</Text>
                   </View>
                 </View>
                 <Text style={styles.sectionHint} numberOfLines={objectsExpanded ? 1 : 2}>
-                  {objectsExpanded ? '이 물건들로 오늘의 이야기를 만들어요' : todayObjectSummary}
+                  {objectsExpanded ? todayObjectSummary : todayObjectSummary}
                 </Text>
               </View>
               <View style={[styles.chevronButton, objectsExpanded && styles.chevronButtonExpanded]}>
@@ -362,8 +361,7 @@ export default function StoryScreen() {
             <View style={styles.sectionHeader}>
               <Text style={styles.stepLabel}>02</Text>
               <View style={styles.sectionTitleCopy}>
-                <Text style={styles.sectionTitle}>나만의 이야기 설정</Text>
-                <Text style={styles.sectionHint}>오늘의 순간과 원하는 느낌을 알려 주세요</Text>
+                <Text style={styles.sectionTitle}>이야기 생성</Text>
               </View>
             </View>
 
@@ -371,8 +369,8 @@ export default function StoryScreen() {
               <View style={styles.questionTitleRow}>
                 <View style={styles.questionNumber}><Text style={styles.questionNumberText}>1</Text></View>
                 <View style={styles.questionTitleCopy}>
-                  <Text style={styles.questionTitle}>오늘 기분은 어땠나요?</Text>
-                  <Text style={styles.questionDescription}>그날의 감정이 이야기책 책등의 색이 돼요.</Text>
+                  <Text style={styles.questionTitle}>감정 선택</Text>
+                  <Text style={styles.questionDescription}>오늘 자신이 느낀 감정을 골라주세요.</Text>
                 </View>
               </View>
               <View style={styles.emotionGrid}>
@@ -404,9 +402,9 @@ export default function StoryScreen() {
               <View style={styles.questionTitleRow}>
                 <View style={styles.questionNumber}><Text style={styles.questionNumberText}>2</Text></View>
                 <View style={styles.questionTitleCopy}>
-                  <Text style={styles.questionTitle}>오늘 어떤 일이 있었나요?</Text>
+                  <Text style={styles.questionTitle}>줄거리 작성</Text>
                   <Text style={styles.questionDescription}>
-                    적어 주신 이야기를 중심으로, 가방 속 물건이 자연스럽게 함께 등장해요.
+                    적어 주신 줄거리를 바탕으로 이야기가 생성됩니다.
                   </Text>
                 </View>
                 <Text style={styles.optionalBadge}>선택</Text>
@@ -415,7 +413,7 @@ export default function StoryScreen() {
                 <TextInput
                   value={concept}
                   onChangeText={setConcept}
-                  placeholder="예: 카페에서 과제를 하다가 갑자기 비가 왔어요."
+                  placeholder="ex) 카페에서 과제를 하다가 갑자기 비가 왔어요."
                   placeholderTextColor="#A29BA1"
                   style={styles.momentInput}
                   multiline
@@ -432,7 +430,7 @@ export default function StoryScreen() {
               <View style={styles.questionTitleRow}>
                 <View style={styles.questionNumber}><Text style={styles.questionNumberText}>3</Text></View>
                 <View style={styles.questionTitleCopy}>
-                  <Text style={styles.questionTitle}>상상을 얼마나 더할까요?</Text>
+                  <Text style={styles.questionTitle}>상상력 설정</Text>
                   <Text style={styles.questionDescription}>{getCreativityCopy(creativity)}</Text>
                 </View>
                 <View style={styles.creativityBadge}>
@@ -486,18 +484,15 @@ export default function StoryScreen() {
             </View>
 
             <Pressable onPress={generate} disabled={generating || todayItems.length === 0} style={[styles.generateButton, (generating || todayItems.length === 0) && styles.generateButtonDisabled]}>
-              {generating ? <ActivityIndicator color="#FFFFFF" /> : <><Text style={styles.generateSpark}>✦</Text><Text style={styles.generateText}>오늘의 이야기 만들기</Text></>}
+              {generating ? <ActivityIndicator color="#FFFFFF" /> : <><Text style={styles.generateSpark}>✦</Text><Text style={styles.generateText}>이야기 생성</Text></>}
             </Pressable>
-            <Text style={styles.generateHint}>
-              가방 속 물건 {todayItems.length}개가 이야기에 자연스럽게 함께 담겨요
-            </Text>
           </View>
 
           {story ? (
             <View style={styles.resultSection}>
               <View style={styles.sectionHeader}>
                 <Text style={styles.stepLabel}>03</Text>
-                <View><Text style={styles.sectionTitle}>완성된 그림일기</Text><Text style={styles.sectionHint}>오늘의 순간을 간직해 보세요</Text></View>
+                <View><Text style={styles.sectionTitle}>완성된 이야기</Text><Text style={styles.sectionHint}>추억의 순간을 간직해 보세요</Text></View>
               </View>
               <StoryCard story={story} />
               <View style={styles.resultActions}>
@@ -513,7 +508,7 @@ export default function StoryScreen() {
       <Modal visible={historyOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setHistoryOpen(false)}>
         <View style={[styles.historyScreen, { paddingTop: insets.top + 12 }]}>
           <View style={styles.historyHeader}>
-            <View><Text style={styles.historyTitle}>나의 이야기책</Text><Text style={styles.historySubtitle}>저장한 그림일기 {savedStories.length}편</Text></View>
+            <View><Text style={styles.historyTitle}>나의 이야기책</Text><Text style={styles.historySubtitle}>저장한 이야기 {savedStories.length}편</Text></View>
             <Pressable onPress={() => setHistoryOpen(false)} style={styles.closeButton}><Text style={styles.closeText}>×</Text></Pressable>
           </View>
           <ScrollView contentContainerStyle={styles.historyList} showsVerticalScrollIndicator={false}>

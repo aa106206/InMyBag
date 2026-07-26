@@ -3,6 +3,7 @@ import json
 import mimetypes
 import os
 import re
+import time
 from functools import lru_cache
 from io import BytesIO
 from typing import Any
@@ -16,7 +17,12 @@ from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
 IMAGE_PATH = "test2.jpeg"
 OUTPUT_PATH = "result.jpg"
 GEMINI_MODEL = "gemini-2.5-flash"
-GROUNDING_DINO_MODEL = "IDEA-Research/grounding-dino-base"
+# 촬영 후 응답 속도를 위해 기본은 tiny를 사용한다.
+# 탐지 품질을 더 올리고 싶으면 서버 실행 전에
+# GROUNDING_DINO_MODEL="IDEA-Research/grounding-dino-base" 를 export 한다.
+GROUNDING_DINO_MODEL = os.environ.get(
+    "GROUNDING_DINO_MODEL", "IDEA-Research/grounding-dino-tiny"
+)
 KOREAN_FONT_PATH = "/System/Library/Fonts/AppleSDGothicNeo.ttc"
 BOX_THRESHOLD = 0.35
 TEXT_THRESHOLD = 0.3
@@ -104,6 +110,8 @@ For example, if the object is a Tesla Cybertruck:
         "generationConfig": {
             "temperature": 0.1,
             "response_mime_type": "application/json",
+            # 단순 나열 작업이라 thinking을 끄면 수 초가 절약된다.
+            "thinkingConfig": {"thinkingBudget": 0},
         },
     }
 
@@ -163,6 +171,8 @@ Only return items with visibility_score >= 0.85.
         "generationConfig": {
             "temperature": 0.1,
             "response_mime_type": "application/json",
+            # 단순 나열 작업이라 thinking을 끄면 수 초가 절약된다.
+            "thinkingConfig": {"thinkingBudget": 0},
         },
     }
 
@@ -293,11 +303,16 @@ def detect_image_bytes(image_bytes: bytes, mime_type: str = "image/jpeg") -> dic
     """이미지 바이트를 받아 Grounding DINO bbox 후보를 JSON으로 반환합니다."""
     image = Image.open(BytesIO(image_bytes)).convert("RGB")
     width, height = image.size
+
+    gemini_started = time.perf_counter()
     candidates = get_gemini_object_candidates_from_bytes(image_bytes, mime_type=mime_type)
+    gemini_ms = (time.perf_counter() - gemini_started) * 1000
+
     text = build_dino_prompt(candidates)
     label_map = build_display_label_map(candidates)
     processor, model, device = get_grounding_dino()
 
+    dino_started = time.perf_counter()
     inputs = processor(images=image, text=text, return_tensors="pt").to(device)
     with torch.no_grad():
         outputs = model(**inputs)
@@ -309,6 +324,7 @@ def detect_image_bytes(image_bytes: bytes, mime_type: str = "image/jpeg") -> dic
         text_threshold=TEXT_THRESHOLD,
         target_sizes=[image.size[::-1]],
     )
+    dino_ms = (time.perf_counter() - dino_started) * 1000
 
     detections = []
     result = results[0]
@@ -350,6 +366,7 @@ def detect_image_bytes(image_bytes: bytes, mime_type: str = "image/jpeg") -> dic
         "prompt": text,
         "candidates": candidates,
         "boxes": detections,
+        "timingsMs": {"gemini": round(gemini_ms), "dino": round(dino_ms)},
     }
 
 
