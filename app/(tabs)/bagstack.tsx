@@ -1,3 +1,4 @@
+import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import { Accelerometer } from "expo-sensors";
@@ -6,8 +7,10 @@ import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "re
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   DeviceEventEmitter,
   Dimensions,
+  Easing,
   Image,
   KeyboardAvoidingView,
   LayoutChangeEvent,
@@ -59,6 +62,9 @@ const WALL_THICKNESS = 60;
 const FIXED_TIMESTEP = 1000 / 60;
 const MAX_PHOTO_NOTE_LENGTH = 120;
 const DEFAULT_PHOTO_LOCATION_NAME = "위치 정보 없음";
+// AI 서버가 어차피 긴 변 1024px로 줄여 처리하므로, 업로드 전에 미리 같은 크기로 줄인다.
+// 원본(수 MB)을 detect/segment에 두 번 올리던 전송 시간이 크게 줄어든다.
+const MAX_UPLOAD_IMAGE_SIZE = 1024;
 
 type PhotoLocation = {
   name: string | null;
@@ -433,43 +439,91 @@ function getOverlayBox(box: Sam2PromptBox, imageSize: ObjectSize, imageFrame: Re
   };
 }
 
+// 박스를 꾹 눌렀을 때 위아래로 훑는 '스캔' 연출. 분리가 끝날 때까지 반복된다.
+function BoxScanEffect({ boxHeight }: { boxHeight: number }) {
+  const sweep = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(sweep, {
+          toValue: 1,
+          duration: 820,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(sweep, {
+          toValue: 0,
+          duration: 820,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [sweep]);
+
+  const translateY = sweep.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, Math.max(0, boxHeight - 30)],
+  });
+
+  return (
+    <View pointerEvents="none" style={styles.scanFill}>
+      <Animated.View style={[styles.scanBand, { transform: [{ translateY }] }]}>
+        <View style={styles.scanGlow} />
+        <View style={styles.scanLine} />
+      </Animated.View>
+    </View>
+  );
+}
+
+// 프롬프트 박스를 '꾹 누름'으로 인식하기까지의 시간과, 누른 채 움직여도 꾹 누름으로 봐줄 흔들림 허용치.
+const PROMPT_LONG_PRESS_MS = 420;
+const PROMPT_LONG_PRESS_SLOP = 9;
+
 function SegmentPreviewModal({
   photo,
   promptBox,
   detectionBoxes,
   selectedDetectionId,
-  segmentedResult,
   isDetecting,
   isSegmenting,
   onSelectDetection,
+  onScanDetection,
+  onScanPromptBox,
   onMoveBox,
   onCancel,
-  onConfirm,
-  onRetune,
-  onAccept,
-  isSaving,
   children,
 }: {
   photo: PendingPhoto | null;
   promptBox: Sam2PromptBox | null;
   detectionBoxes: DinoDetectionBox[];
   selectedDetectionId: string | null;
-  segmentedResult: Sam2SegmentResult | null;
   isDetecting: boolean;
   isSegmenting: boolean;
   onSelectDetection: (box: DinoDetectionBox) => void;
+  onScanDetection: (box: DinoDetectionBox) => void;
+  onScanPromptBox: () => void;
   onMoveBox: (dx: number, dy: number) => void;
   onCancel: () => void;
-  onConfirm: () => void;
-  onRetune: () => void;
-  onAccept: () => void;
-  isSaving: boolean;
   children?: ReactNode;
 }) {
   const [previewSize, setPreviewSize] = useState<ObjectSize>({ width: 0, height: 0 });
   const dragStartRef = useRef({ x: 0, y: 0 });
   const photoRef = useRef<PendingPhoto | null>(null);
   const imageFrameRef = useRef<Rect>({ x: 0, y: 0, width: 0, height: 0 });
+  const onScanPromptBoxRef = useRef(onScanPromptBox);
+  const promptPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  onScanPromptBoxRef.current = onScanPromptBox;
+
+  const clearPromptPressTimer = () => {
+    if (promptPressTimerRef.current) {
+      clearTimeout(promptPressTimerRef.current);
+      promptPressTimerRef.current = null;
+    }
+  };
 
   const panResponder = useRef(
     PanResponder.create({
@@ -477,8 +531,21 @@ function SegmentPreviewModal({
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: () => {
         dragStartRef.current = { x: 0, y: 0 };
+        // 드래그 없이 꾹 누르고 있으면 이 박스로 바로 스캔을 시작한다.
+        clearPromptPressTimer();
+        promptPressTimerRef.current = setTimeout(() => {
+          promptPressTimerRef.current = null;
+          onScanPromptBoxRef.current();
+        }, PROMPT_LONG_PRESS_MS);
       },
       onPanResponderMove: (_, gestureState) => {
+        if (
+          Math.abs(gestureState.dx) > PROMPT_LONG_PRESS_SLOP ||
+          Math.abs(gestureState.dy) > PROMPT_LONG_PRESS_SLOP
+        ) {
+          clearPromptPressTimer();
+        }
+
         const currentPhoto = photoRef.current;
         const currentImageFrame = imageFrameRef.current;
 
@@ -494,6 +561,12 @@ function SegmentPreviewModal({
         onMoveBox(imageDx, imageDy);
         dragStartRef.current = { x: gestureState.dx, y: gestureState.dy };
       },
+      onPanResponderRelease: () => {
+        clearPromptPressTimer();
+      },
+      onPanResponderTerminate: () => {
+        clearPromptPressTimer();
+      },
     }),
   ).current;
 
@@ -505,183 +578,118 @@ function SegmentPreviewModal({
   const overlayBox = getOverlayBox(promptBox, photo, imageFrame);
   photoRef.current = photo;
   imageFrameRef.current = imageFrame;
-  const hasSegmentedResult = Boolean(segmentedResult);
 
   return (
     <Modal visible animationType="slide" presentationStyle="fullScreen">
       <View style={styles.previewScreen}>
         <View style={styles.previewHeader}>
-          <Text style={styles.previewTitle}>
-            {hasSegmentedResult ? "Segment 결과 확인" : "Segment 영역 확인"}
-          </Text>
+          <Text style={styles.previewTitle}>물건 선택</Text>
           <Text style={styles.previewSubtitle}>
-            {hasSegmentedResult
-              ? "분리된 객체가 괜찮으면 가방에 추가해요."
+            {isSegmenting
+              ? "물건을 스캔해서 배경을 지우는 중이에요.."
               : isDetecting
-                ? "Grounding DINO가 이미지 속 객체 후보를 찾고 있어요."
-                : "DINO가 찾은 박스 중 하나를 고르고 필요하면 조정해요."}
+                ? "사진 속 물건을 찾고 있어요.."
+                : "물건 박스를 꾹 누르면 배경이 지워지고 가방에 담겨요."}
           </Text>
         </View>
 
-        {segmentedResult ? (
-          <View style={styles.resultStage}>
-            {segmentedResult.overlayUri ? (
-              <View style={styles.resultOverlayCard}>
-                <Text style={styles.resultCardTitle}>Segment 표시</Text>
-                <View style={styles.segmentedOverlayFrame}>
-                  <Image
-                    source={{ uri: segmentedResult.overlayUri }}
-                    style={styles.segmentedOverlayImage}
-                    resizeMode="contain"
-                  />
-                </View>
-              </View>
-            ) : null}
+        <View
+          style={styles.previewStage}
+          onLayout={(event) => {
+            const { width, height } = event.nativeEvent.layout;
+            setPreviewSize({ width, height });
+          }}
+        >
+          <Image source={{ uri: photo.uri }} style={styles.previewImage} resizeMode="contain" />
+          {imageFrame.width > 0 && !isDetecting
+            ? detectionBoxes.map((detectedBox) => {
+                const candidateBox = getOverlayBox(detectedBox.box, photo, imageFrame);
+                const isSelected = detectedBox.id === selectedDetectionId;
 
-            <View style={styles.resultPreviewCard}>
-              <Text style={styles.resultCardTitle}>분리된 객체</Text>
-              <View style={styles.segmentedObjectFrame}>
+                return (
+                  <Pressable
+                    key={detectedBox.id}
+                    style={[
+                      styles.detectedBox,
+                      isSelected ? styles.detectedBoxSelected : undefined,
+                      {
+                        left: candidateBox.x,
+                        top: candidateBox.y,
+                        width: candidateBox.width,
+                        height: candidateBox.height,
+                      },
+                    ]}
+                    onPress={() => onSelectDetection(detectedBox)}
+                    onLongPress={() => onScanDetection(detectedBox)}
+                    delayLongPress={PROMPT_LONG_PRESS_MS}
+                    disabled={isSegmenting}
+                  >
+                    <View
+                      style={[
+                        styles.detectedBoxLabel,
+                        isSelected ? styles.detectedBoxLabelSelected : undefined,
+                      ]}
+                    >
+                      <Text style={styles.detectedBoxLabelText}>
+                        {detectedBox.label}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })
+            : null}
+          {imageFrame.width > 0 && !isDetecting ? (
+            <View
+              style={[
+                styles.promptBox,
+                isSegmenting ? styles.promptBoxScanning : undefined,
+                {
+                  left: overlayBox.x,
+                  top: overlayBox.y,
+                  width: overlayBox.width,
+                  height: overlayBox.height,
+                },
+              ]}
+              pointerEvents={isSegmenting ? "none" : "auto"}
+              {...panResponder.panHandlers}
+            >
+              {isSegmenting ? <BoxScanEffect boxHeight={overlayBox.height} /> : null}
+              <View style={styles.promptLabel}>
+                <Text style={styles.promptLabelText}>
+                  {isSegmenting ? "스캔 중.." : "꾹 눌러서 담기"}
+                </Text>
+              </View>
+              <View style={[styles.promptCorner, styles.promptCornerTopLeft]} />
+              <View style={[styles.promptCorner, styles.promptCornerTopRight]} />
+              <View style={[styles.promptCorner, styles.promptCornerBottomLeft]} />
+              <View style={[styles.promptCorner, styles.promptCornerBottomRight]} />
+            </View>
+          ) : null}
+          {isDetecting ? (
+            <View style={styles.detectionLoadingOverlay}>
+              <View style={styles.detectionLoadingCard}>
                 <Image
-                  source={{ uri: segmentedResult.uri }}
-                  style={styles.segmentedObjectImage}
+                  source={require("@/assets/images/SnapBag.png")}
+                  style={styles.detectionLoadingLogo}
                   resizeMode="contain"
                 />
+                <Text style={styles.detectionLoadingBrand}>SnapBag</Text>
+                <ActivityIndicator color={Brand.primary} size="small" />
+                <Text style={styles.detectionLoadingText}>사진 속 물건을 찾는 중 ..</Text>
               </View>
             </View>
-          </View>
-        ) : (
-          <View
-            style={styles.previewStage}
-            onLayout={(event) => {
-              const { width, height } = event.nativeEvent.layout;
-              setPreviewSize({ width, height });
-            }}
-          >
-            <Image source={{ uri: photo.uri }} style={styles.previewImage} resizeMode="contain" />
-            {imageFrame.width > 0 && !isDetecting
-              ? detectionBoxes.map((detectedBox) => {
-                  const candidateBox = getOverlayBox(detectedBox.box, photo, imageFrame);
-                  const isSelected = detectedBox.id === selectedDetectionId;
-
-                  return (
-                    <Pressable
-                      key={detectedBox.id}
-                      style={[
-                        styles.detectedBox,
-                        isSelected ? styles.detectedBoxSelected : undefined,
-                        {
-                          left: candidateBox.x,
-                          top: candidateBox.y,
-                          width: candidateBox.width,
-                          height: candidateBox.height,
-                        },
-                      ]}
-                      onPress={() => onSelectDetection(detectedBox)}
-                    >
-                      <View
-                        style={[
-                          styles.detectedBoxLabel,
-                          isSelected ? styles.detectedBoxLabelSelected : undefined,
-                        ]}
-                      >
-                        <Text style={styles.detectedBoxLabelText}>
-                          {detectedBox.label}
-                        </Text>
-                      </View>
-                    </Pressable>
-                  );
-                })
-              : null}
-            {imageFrame.width > 0 && !isDetecting ? (
-              <View
-                style={[
-                  styles.promptBox,
-                  {
-                    left: overlayBox.x,
-                    top: overlayBox.y,
-                    width: overlayBox.width,
-                    height: overlayBox.height,
-                  },
-                ]}
-                {...panResponder.panHandlers}
-              >
-                <View style={styles.promptLabel}>
-                  <Text style={styles.promptLabelText}>물건 선택하기</Text>
-                </View>
-                <View style={[styles.promptCorner, styles.promptCornerTopLeft]} />
-                <View style={[styles.promptCorner, styles.promptCornerTopRight]} />
-                <View style={[styles.promptCorner, styles.promptCornerBottomLeft]} />
-                <View style={[styles.promptCorner, styles.promptCornerBottomRight]} />
-              </View>
-            ) : null}
-            {isDetecting ? (
-              <View style={styles.detectionLoadingOverlay}>
-                <View style={styles.detectionLoadingCard}>
-                  <Image
-                    source={require("@/assets/images/SnapBag.png")}
-                    style={styles.detectionLoadingLogo}
-                    resizeMode="contain"
-                  />
-                  <Text style={styles.detectionLoadingBrand}>SnapBag</Text>
-                  <ActivityIndicator color={Brand.primary} size="small" />
-                  <Text style={styles.detectionLoadingText}>객체 후보 탐지중 ..</Text>
-                </View>
-              </View>
-            ) : null}
-          </View>
-        )}
+          ) : null}
+        </View>
 
         <View style={styles.previewControls}>
           <View style={styles.previewActions}>
-            {segmentedResult ? (
-              <>
-                <Pressable
-                  style={[styles.previewButton, styles.previewSecondaryButton]}
-                  onPress={onRetune}
-                  disabled={isSegmenting}
-                >
-                  <Text style={styles.previewSecondaryText}>물건 다시 선택</Text>
-                </Pressable>
-                <Pressable
-                  style={[
-                    styles.previewButton,
-                    styles.previewPrimaryButton,
-                    isSaving && styles.disabledButton,
-                  ]}
-                  onPress={onAccept}
-                  disabled={isSegmenting || isSaving}
-                >
-                  <Text style={styles.previewPrimaryText}>
-                    {isSaving ? "저장 중..." : "가방에 추가"}
-                  </Text>
-                </Pressable>
-              </>
-            ) : (
-              <>
-                <Pressable
-                  style={[styles.previewButton, styles.previewSecondaryButton]}
-                  onPress={onCancel}
-                  disabled={isSegmenting}
-                >
-                  <Text style={styles.previewSecondaryText}>다시 찍기</Text>
-                </Pressable>
-                {!isDetecting ? (
-                  <Pressable
-                    style={[
-                      styles.previewButton,
-                      styles.previewPrimaryButton,
-                      isSegmenting && styles.disabledButton,
-                    ]}
-                    onPress={onConfirm}
-                    disabled={isSegmenting}
-                  >
-                    <Text style={styles.previewPrimaryText}>
-                      {isSegmenting ? "분리 중..." : "물건 선택하기"}
-                    </Text>
-                  </Pressable>
-                ) : null}
-              </>
-            )}
+            <Pressable
+              style={[styles.previewButton, styles.previewSecondaryButton]}
+              onPress={onCancel}
+              disabled={isSegmenting}
+            >
+              <Text style={styles.previewSecondaryText}>다시 찍기</Text>
+            </Pressable>
           </View>
         </View>
       </View>
@@ -721,9 +729,9 @@ function PhotoNoteModal({
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <View style={styles.noteComposerHeader}>
-          <Text style={styles.noteComposerTitle}>오늘의 기록</Text>
+          <Text style={styles.noteComposerTitle}>메모 추가</Text>
           <Text style={styles.noteComposerSubtitle}>
-            이 물건과 함께 남기고 싶은 짧은 글을 적어보세요.
+            이 물건에 대한 짧은 메모를 남겨주세요.
           </Text>
         </View>
 
@@ -739,7 +747,7 @@ function PhotoNoteModal({
               style={styles.noteInput}
               value={note}
               onChangeText={onChangeNote}
-              placeholder="오늘 이 물건과 함께한 순간을 적어보세요."
+              placeholder="물건에 대한 메모를 입력하세요."
               placeholderTextColor={Brand.muted}
               multiline
               maxLength={MAX_PHOTO_NOTE_LENGTH}
@@ -1051,8 +1059,8 @@ function BagViewsModal({
         <View style={styles.viewsCard}>
           <View style={styles.viewsHeader}>
             <View style={styles.viewsTitleBlock}>
-              <Text style={styles.viewsTitle}>내 가방을 조회한 사람</Text>
-              <Text style={styles.viewsSubtitle}>피드에서 내 가방을 열어본 친구들이에요.</Text>
+              <Text style={styles.viewsTitle}>조회수</Text>
+              <Text style={styles.viewsSubtitle}>내 가방을 조회한 사람</Text>
             </View>
             <Pressable style={styles.viewsCloseButton} onPress={onClose} hitSlop={10}>
               <Text style={styles.viewsCloseText}>×</Text>
@@ -1411,11 +1419,30 @@ function PeriodPickerSheet({
   );
 }
 
+type ReaderDayPhoto = {
+  id: string;
+  uri: string;
+};
+
+// 이야기 아래 '이 날의 가방'에서 사진들을 흩어 놓을 때 쓰는 상대 좌표(%)와 기울기.
+const READER_BAG_SPOTS = [
+  { left: 8, top: 14, rotate: -7 },
+  { left: 38, top: 6, rotate: 4 },
+  { left: 66, top: 16, rotate: 9 },
+  { left: 20, top: 46, rotate: 6 },
+  { left: 50, top: 38, rotate: -5 },
+  { left: 72, top: 54, rotate: -9 },
+  { left: 5, top: 60, rotate: 3 },
+  { left: 40, top: 64, rotate: -3 },
+];
+
 function StoryReaderModal({
   story,
+  dayPhotos,
   onClose,
 }: {
   story: GeneratedStory | null;
+  dayPhotos: ReaderDayPhoto[];
   onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
@@ -1457,6 +1484,46 @@ function StoryReaderModal({
                       <Text style={styles.readerTagText}>#{label}</Text>
                     </View>
                   ))}
+                </View>
+              ) : null}
+              {dayPhotos.length > 0 ? (
+                <View style={styles.readerBagSection}>
+                  <Text style={styles.readerBagTitle}>이 날의 가방</Text>
+                  <Text style={styles.readerBagHint}>
+                    이 날 찍어서 담은 물건 {dayPhotos.length}개
+                  </Text>
+                  <View style={styles.readerBagHandle} />
+                  <View style={styles.readerBagBody}>
+                    {dayPhotos.slice(0, READER_BAG_SPOTS.length).map((photo, index) => {
+                      const spot = READER_BAG_SPOTS[index];
+                      return (
+                        <View
+                          key={photo.id}
+                          style={[
+                            styles.readerBagPhoto,
+                            {
+                              left: `${spot.left}%`,
+                              top: `${spot.top}%`,
+                              transform: [{ rotate: `${spot.rotate}deg` }],
+                            },
+                          ]}
+                        >
+                          <Image
+                            source={{ uri: photo.uri }}
+                            style={styles.readerBagPhotoImage}
+                            resizeMode="contain"
+                          />
+                        </View>
+                      );
+                    })}
+                    {dayPhotos.length > READER_BAG_SPOTS.length ? (
+                      <View style={styles.readerBagMoreBadge}>
+                        <Text style={styles.readerBagMoreText}>
+                          +{dayPhotos.length - READER_BAG_SPOTS.length}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
                 </View>
               ) : null}
             </View>
@@ -1566,6 +1633,34 @@ export default function BagStackScreen() {
       setEmptyHint(`${day.dateLabel} · 아직 이야기가 없어요`);
     }
   }, []);
+
+  // 이야기 날짜와 같은 날 가방에 저장된 사진들.
+  // 가방에서 지웠거나 샘플 이야기라 실물이 없으면 이야기에 저장된 사진 스냅샷을 대신 쓴다.
+  const readerDayPhotos = useMemo<ReaderDayPhoto[]>(() => {
+    if (!readerStory) return [];
+
+    const storyDate = new Date(readerStory.createdAt);
+    if (Number.isNaN(storyDate.getTime())) return [];
+
+    const sameDayPhotos = photos
+      .filter((photo) => {
+        if (!photo.createdAt) return false;
+        const photoDate = new Date(photo.createdAt);
+        return (
+          photoDate.getFullYear() === storyDate.getFullYear() &&
+          photoDate.getMonth() === storyDate.getMonth() &&
+          photoDate.getDate() === storyDate.getDate()
+        );
+      })
+      .map((photo) => ({ id: photo.id, uri: photo.uri }));
+
+    if (sameDayPhotos.length > 0) return sameDayPhotos;
+
+    return (readerStory.imageUrls ?? []).map((uri, index) => ({
+      id: `${readerStory.id}-snapshot-${index}`,
+      uri,
+    }));
+  }, [photos, readerStory]);
   const [isBagViewsOpen, setIsBagViewsOpen] = useState(false);
   const [bagViews, setBagViews] = useState<BagView[]>([]);
   const [isLoadingBagViews, setIsLoadingBagViews] = useState(false);
@@ -1830,6 +1925,37 @@ export default function BagStackScreen() {
     setSelectedPhoto(updatedPhoto);
   }, [selectedPhoto]);
 
+  const downscaleForUpload = useCallback(
+    async (asset: { uri: string; width?: number; height?: number }) => {
+      const assetWidth = asset.width ?? 0;
+      const assetHeight = asset.height ?? 0;
+      const longestSide = Math.max(assetWidth, assetHeight);
+
+      if (longestSide > 0 && longestSide <= MAX_UPLOAD_IMAGE_SIZE) {
+        return { uri: asset.uri, width: assetWidth, height: assetHeight };
+      }
+
+      try {
+        const context = ImageManipulator.ImageManipulator.manipulate(asset.uri);
+        context.resize(
+          assetWidth >= assetHeight
+            ? { width: MAX_UPLOAD_IMAGE_SIZE }
+            : { height: MAX_UPLOAD_IMAGE_SIZE },
+        );
+        const rendered = await context.renderAsync();
+        const saved = await rendered.saveAsync({
+          format: ImageManipulator.SaveFormat.JPEG,
+          compress: 0.8,
+        });
+        return { uri: saved.uri, width: saved.width, height: saved.height };
+      } catch (error) {
+        console.warn("업로드용 이미지 축소 실패. 원본으로 진행합니다.", error);
+        return { uri: asset.uri, width: assetWidth || 1024, height: assetHeight || 1024 };
+      }
+    },
+    [],
+  );
+
   const pickFromCamera = useCallback(async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== "granted") {
@@ -1844,12 +1970,12 @@ export default function BagStackScreen() {
     });
 
     if (!result.canceled && result.assets[0]?.uri) {
-      const asset = result.assets[0];
-      const width = asset.width || 1024;
-      const height = asset.height || 1024;
+      const scaled = await downscaleForUpload(result.assets[0]);
+      const width = scaled.width || 1024;
+      const height = scaled.height || 1024;
       const photoLocation = await getCurrentPhotoLocation();
       const nextPhoto = {
-        uri: asset.uri,
+        uri: scaled.uri,
         width,
         height,
         locationName: photoLocation.name,
@@ -1867,7 +1993,7 @@ export default function BagStackScreen() {
 
       setIsDetecting(true);
       try {
-        const detection = await detectObjectsWithDino(asset.uri);
+        const detection = await detectObjectsWithDino(scaled.uri);
         const boxes = detection.boxes ?? [];
         setDetectionBoxes(boxes);
 
@@ -1885,7 +2011,7 @@ export default function BagStackScreen() {
         setIsDetecting(false);
       }
     }
-  }, []);
+  }, [downscaleForUpload]);
 
   const selectDetectionBox = useCallback((box: DinoDetectionBox) => {
     setSelectedDetectionId(box.id);
@@ -1932,26 +2058,46 @@ export default function BagStackScreen() {
     setPhotoNote("");
   }, [isSegmenting]);
 
-  const confirmSegmentPreview = useCallback(async () => {
-    if (!pendingPhoto || !promptBox) {
-      return;
-    }
+  // 박스를 꾹 누르면 호출된다. 분리가 끝나면 결과 확인 화면 없이 바로 '오늘의 기록'으로 넘어간다.
+  const runSegmentation = useCallback(
+    async (box: Sam2PromptBox) => {
+      if (!pendingPhoto || isSegmenting) {
+        return;
+      }
 
-    setIsSegmenting(true);
+      setIsSegmenting(true);
 
-    try {
-      const segmented = await segmentImageWithSam2(pendingPhoto.uri, promptBox, pendingPhoto);
-      setSegmentedPreview(segmented);
-    } catch (error) {
-      console.warn("SAM2 segmentation failed. Skipping rectangular original image.", error);
-      Alert.alert(
-        "SAM2 연결 실패",
-        `객체 분리에 실패해서 사진을 추가하지 않았어요.\n서버 주소: ${getSam2ServerUrl()}`,
-      );
-    } finally {
-      setIsSegmenting(false);
+      try {
+        const segmented = await segmentImageWithSam2(pendingPhoto.uri, box, pendingPhoto);
+        setSegmentedPreview(segmented);
+        setIsWritingPhotoNote(true);
+      } catch (error) {
+        console.warn("SAM2 segmentation failed. Skipping rectangular original image.", error);
+        Alert.alert(
+          "SAM2 연결 실패",
+          `객체 분리에 실패해서 사진을 추가하지 않았어요.\n서버 주소: ${getSam2ServerUrl()}`,
+        );
+      } finally {
+        setIsSegmenting(false);
+      }
+    },
+    [pendingPhoto, isSegmenting],
+  );
+
+  const scanDetectionBox = useCallback(
+    (box: DinoDetectionBox) => {
+      setSelectedDetectionId(box.id);
+      setPromptBox(box.box);
+      void runSegmentation(box.box);
+    },
+    [runSegmentation],
+  );
+
+  const scanPromptBox = useCallback(() => {
+    if (promptBox) {
+      void runSegmentation(promptBox);
     }
-  }, [pendingPhoto, promptBox]);
+  }, [promptBox, runSegmentation]);
 
   const retuneSegmentBox = useCallback(() => {
     if (isSegmenting) {
@@ -1961,12 +2107,6 @@ export default function BagStackScreen() {
     setSegmentedPreview(null);
     setIsWritingPhotoNote(false);
   }, [isSegmenting]);
-
-  const openPhotoNoteComposer = useCallback(() => {
-    if (segmentedPreview) {
-      setIsWritingPhotoNote(true);
-    }
-  }, [segmentedPreview]);
 
   const acceptSegmentedPreview = useCallback(async () => {
     if (!segmentedPreview) {
@@ -2072,16 +2212,13 @@ export default function BagStackScreen() {
         promptBox={promptBox}
         detectionBoxes={detectionBoxes}
         selectedDetectionId={selectedDetectionId}
-        segmentedResult={segmentedPreview}
         isDetecting={isDetecting}
         isSegmenting={isSegmenting}
         onSelectDetection={selectDetectionBox}
+        onScanDetection={scanDetectionBox}
+        onScanPromptBox={scanPromptBox}
         onMoveBox={movePromptBox}
         onCancel={cancelSegmentPreview}
-        onConfirm={confirmSegmentPreview}
-        onRetune={retuneSegmentBox}
-        onAccept={openPhotoNoteComposer}
-        isSaving={isSavingBagItem}
       >
         <PhotoNoteModal
           visible={isWritingPhotoNote}
@@ -2090,7 +2227,7 @@ export default function BagStackScreen() {
           note={photoNote}
           isSaving={isSavingBagItem}
           onChangeNote={setPhotoNote}
-          onBack={() => setIsWritingPhotoNote(false)}
+          onBack={retuneSegmentBox}
           onSave={acceptSegmentedPreview}
         />
       </SegmentPreviewModal>
@@ -2234,7 +2371,11 @@ export default function BagStackScreen() {
         onSelect={selectPeriod}
         onClose={() => setIsPeriodPickerOpen(false)}
       />
-      <StoryReaderModal story={readerStory} onClose={() => setReaderStory(null)} />
+      <StoryReaderModal
+        story={readerStory}
+        dayPhotos={readerDayPhotos}
+        onClose={() => setReaderStory(null)}
+      />
     </View>
   );
 }
@@ -2654,7 +2795,7 @@ const styles = StyleSheet.create({
   },
   previewScreen: {
     flex: 1,
-    backgroundColor: "#050505",
+    backgroundColor: Brand.secondary,
   },
   noteComposerScreen: {
     flex: 1,
@@ -2776,94 +2917,67 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   previewHeader: {
-    paddingHorizontal: 18,
+    paddingHorizontal: 22,
     paddingTop: 56,
     paddingBottom: 14,
-    backgroundColor: "#101014",
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.12)",
   },
   previewTitle: {
-    color: "#FFFFFF",
-    fontSize: 20,
+    color: Brand.text,
+    fontSize: 24,
     fontWeight: "900",
   },
   previewSubtitle: {
-    color: "rgba(255,255,255,0.72)",
+    color: Brand.muted,
     fontSize: 13,
     lineHeight: 18,
-    marginTop: 4,
+    marginTop: 5,
+    fontWeight: "600",
   },
   previewStage: {
     flex: 1,
+    marginHorizontal: 16,
     overflow: "hidden",
-    backgroundColor: "#000000",
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: Brand.border,
+    backgroundColor: "#EFE6DA",
   },
   previewImage: {
-    width: "100%",
-    height: "100%",
-  },
-  resultStage: {
-    flex: 1,
-    gap: 12,
-    padding: 16,
-    backgroundColor: "#000000",
-  },
-  resultOverlayCard: {
-    flex: 1.15,
-    minHeight: 260,
-    overflow: "hidden",
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "#16161A",
-  },
-  resultPreviewCard: {
-    flex: 0.85,
-    minHeight: 190,
-    overflow: "hidden",
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
-    backgroundColor: "#16161A",
-  },
-  resultCardTitle: {
-    color: "#FFFFFF",
-    fontSize: 13,
-    fontWeight: "900",
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    paddingBottom: 8,
-  },
-  segmentedOverlayFrame: {
-    flex: 1,
-    marginHorizontal: 12,
-    marginBottom: 12,
-    overflow: "hidden",
-    borderRadius: 8,
-    backgroundColor: "#000000",
-  },
-  segmentedOverlayImage: {
-    width: "100%",
-    height: "100%",
-  },
-  segmentedObjectFrame: {
-    flex: 1,
-    marginHorizontal: 12,
-    marginBottom: 10,
-    overflow: "hidden",
-    borderRadius: 8,
-    backgroundColor: "#EDF1F5",
-  },
-  segmentedObjectImage: {
     width: "100%",
     height: "100%",
   },
   promptBox: {
     position: "absolute",
     borderWidth: 2,
-    borderColor: Brand.primary,
-    backgroundColor: "rgba(255, 158, 187, 0.14)",
+    borderColor: Brand.lavenderDeep,
+    backgroundColor: "rgba(199, 184, 234, 0.16)",
+  },
+  promptBoxScanning: {
+    borderColor: Brand.lavenderDeep,
+    backgroundColor: "rgba(199, 184, 234, 0.10)",
+  },
+  scanFill: {
+    ...StyleSheet.absoluteFillObject,
+    overflow: "hidden",
+    backgroundColor: "rgba(199, 184, 234, 0.20)",
+  },
+  scanBand: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+  },
+  scanGlow: {
+    height: 26,
+    backgroundColor: "rgba(143, 130, 216, 0.22)",
+  },
+  scanLine: {
+    height: 3,
+    backgroundColor: Brand.lavenderDeep,
+    shadowColor: Brand.lavenderDeep,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.9,
+    shadowRadius: 6,
   },
   detectedBox: {
     position: "absolute",
@@ -2872,8 +2986,8 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.08)",
   },
   detectedBoxSelected: {
-    borderColor: Brand.primary,
-    backgroundColor: "rgba(255, 158, 187, 0.16)",
+    borderColor: Brand.lavenderDeep,
+    backgroundColor: "rgba(199, 184, 234, 0.18)",
   },
   detectedBoxLabel: {
     position: "absolute",
@@ -2883,10 +2997,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 5,
     borderRadius: 999,
-    backgroundColor: "rgba(0,0,0,0.72)",
+    backgroundColor: "rgba(17, 24, 39, 0.66)",
   },
   detectedBoxLabelSelected: {
-    backgroundColor: Brand.primary,
+    backgroundColor: Brand.lavenderDeep,
   },
   detectedBoxLabelText: {
     color: "#FFFFFF",
@@ -2897,7 +3011,7 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(0,0,0,0.42)",
+    backgroundColor: "rgba(255, 243, 230, 0.55)",
   },
   detectionLoadingCard: {
     alignItems: "center",
@@ -2905,10 +3019,15 @@ const styles = StyleSheet.create({
     minWidth: 190,
     paddingHorizontal: 24,
     paddingVertical: 22,
-    borderRadius: 8,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.18)",
-    backgroundColor: "rgba(16,16,20,0.88)",
+    borderColor: Brand.border,
+    backgroundColor: Brand.surfaceElevated,
+    shadowColor: Brand.text,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.1,
+    shadowRadius: 16,
+    elevation: 6,
   },
   detectionLoadingLogo: {
     width: 58,
@@ -2916,12 +3035,12 @@ const styles = StyleSheet.create({
     borderRadius: 14,
   },
   detectionLoadingBrand: {
-    color: "#FFFFFF",
+    color: Brand.text,
     fontSize: 20,
     fontWeight: "900",
   },
   detectionLoadingText: {
-    color: "rgba(255,255,255,0.82)",
+    color: Brand.muted,
     fontSize: 14,
     fontWeight: "800",
   },
@@ -2932,10 +3051,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 999,
-    backgroundColor: Brand.primary,
+    backgroundColor: Brand.lavenderDeep,
   },
   promptLabelText: {
-    color: Brand.text,
+    color: "#FFFFFF",
     fontSize: 12,
     fontWeight: "900",
   },
@@ -2943,7 +3062,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     width: 18,
     height: 18,
-    borderColor: "#FFFFFF",
+    borderColor: Brand.lavenderDeep,
   },
   promptCornerTopLeft: {
     left: -2,
@@ -2971,11 +3090,8 @@ const styles = StyleSheet.create({
   },
   previewControls: {
     paddingHorizontal: 18,
-    paddingTop: 12,
-    paddingBottom: 24,
-    backgroundColor: "#101014",
-    borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.12)",
+    paddingTop: 14,
+    paddingBottom: 26,
   },
   previewActions: {
     flexDirection: "row",
@@ -2985,23 +3101,15 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     paddingVertical: 15,
-    borderRadius: 8,
-  },
-  previewPrimaryButton: {
-    backgroundColor: Brand.primary,
+    borderRadius: 18,
   },
   previewSecondaryButton: {
-    backgroundColor: "transparent",
+    backgroundColor: Brand.surface,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.22)",
-  },
-  previewPrimaryText: {
-    color: Brand.text,
-    fontSize: 14,
-    fontWeight: "900",
+    borderColor: Brand.border,
   },
   previewSecondaryText: {
-    color: "#FFFFFF",
+    color: Brand.text,
     fontSize: 14,
     fontWeight: "900",
   },
@@ -3370,6 +3478,67 @@ const styles = StyleSheet.create({
     paddingHorizontal: 11,
     paddingVertical: 5,
     borderRadius: 12,
+  },
+  readerBagSection: {
+    marginTop: 26,
+  },
+  readerBagTitle: {
+    color: Brand.text,
+    fontSize: 17,
+    fontWeight: "900",
+  },
+  readerBagHint: {
+    color: Brand.muted,
+    fontSize: 12,
+    marginTop: 4,
+    marginBottom: 14,
+  },
+  readerBagHandle: {
+    alignSelf: "center",
+    width: 92,
+    height: 34,
+    borderTopLeftRadius: 46,
+    borderTopRightRadius: 46,
+    borderWidth: 5,
+    borderBottomWidth: 0,
+    borderColor: Brand.border,
+    marginBottom: -6,
+    zIndex: 1,
+  },
+  readerBagBody: {
+    height: 216,
+    borderRadius: 22,
+    borderBottomLeftRadius: 34,
+    borderBottomRightRadius: 34,
+    borderWidth: 2,
+    borderColor: Brand.border,
+    backgroundColor: Brand.surfaceWarm,
+    overflow: "hidden",
+  },
+  readerBagPhoto: {
+    position: "absolute",
+    width: 74,
+    height: 74,
+  },
+  readerBagPhotoImage: {
+    width: "100%",
+    height: "100%",
+  },
+  readerBagMoreBadge: {
+    position: "absolute",
+    right: 12,
+    bottom: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: Brand.surface,
+    borderWidth: 1,
+    borderColor: Brand.border,
+  },
+  readerBagMoreText: {
+    color: Brand.text,
+    fontSize: 12,
+    fontWeight: "900",
   },
   readerTagText: {
     color: "#725E98",
