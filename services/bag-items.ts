@@ -343,21 +343,36 @@ async function loadItemsForStack(bagStackId: string): Promise<SavedBagItem[]> {
     })) as BagItemRow[];
   }
 
-  return Promise.all(
-    (rows ?? []).map(async (item) => ({
-      id: item.id,
-      imageUrl: await getDisplayUrl(item.storage_path, item.image_url),
-      storagePath: item.storage_path,
-      width: item.width ?? 92,
-      height: item.height ?? 92,
-      createdAt: item.created_at,
-      objectLabel: item.object_label,
-      note: item.note,
-      locationName: item.location_name,
-      locationLatitude: item.location_latitude,
-      locationLongitude: item.location_longitude,
-    })),
+  const items = await Promise.all(
+    (rows ?? []).map(async (item): Promise<SavedBagItem | null> => {
+      let imageUrl: string;
+
+      try {
+        imageUrl = await getDisplayUrl(item.storage_path, item.image_url);
+      } catch (error) {
+        // 이미지 파일이 사라진 아이템 하나 때문에 가방 전체가 비어 보이면 안 되므로
+        // 해당 아이템만 건너뛴다.
+        console.warn('Bag item image unavailable. Skipping item.', item.id, error);
+        return null;
+      }
+
+      return {
+        id: item.id,
+        imageUrl,
+        storagePath: item.storage_path,
+        width: item.width ?? 92,
+        height: item.height ?? 92,
+        createdAt: item.created_at,
+        objectLabel: item.object_label,
+        note: item.note,
+        locationName: item.location_name,
+        locationLatitude: item.location_latitude,
+        locationLongitude: item.location_longitude,
+      };
+    }),
   );
+
+  return items.filter((item): item is SavedBagItem => item !== null);
 }
 
 export async function loadCurrentBagItems(user: User): Promise<SavedBagItem[]> {
