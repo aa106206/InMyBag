@@ -20,6 +20,7 @@ export default function TabLayout() {
 
   return (
     <Tabs
+      initialRouteName="bagstack"
       screenOptions={{
         tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
         tabBarInactiveTintColor: Colors[colorScheme ?? 'light'].tabIconDefault,
@@ -51,6 +52,20 @@ export default function TabLayout() {
       }}
     >
       <Tabs.Screen
+        name="explore"
+        options={{
+          title: '둘러보기',
+          tabBarIcon: ({ color }) => <IconSymbol size={TAB_ICON_SIZE} name="safari.fill" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: '피드',
+          tabBarIcon: ({ color }) => <IconSymbol size={FEED_TAB_ICON_SIZE} name="person.fill" color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="bagstack"
         listeners={({ navigation }) => ({
           tabPress: () => {
@@ -64,20 +79,6 @@ export default function TabLayout() {
           tabBarIcon: ({ color }) => (
             <IconSymbol size={TAB_ICON_SIZE} name="bag.fill" color={color} />
           ),
-        }}
-      />
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: '피드',
-          tabBarIcon: ({ color }) => <IconSymbol size={FEED_TAB_ICON_SIZE} name="person.fill" color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="explore"
-        options={{
-          title: '둘러보기',
-          tabBarIcon: ({ color }) => <IconSymbol size={TAB_ICON_SIZE} name="safari.fill" color={color} />,
         }}
       />
       <Tabs.Screen
