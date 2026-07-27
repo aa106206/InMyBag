@@ -26,6 +26,11 @@ import { Brand } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { loadFriendBagItems, SavedBagItem } from '@/services/bag-items';
 import { ExploreOwner, fetchExploreBagOwners } from '@/services/explore';
+import {
+  applyShakeImpulseToBodies,
+  detectShakeImpulse,
+  type ShakeSample,
+} from '@/utils/physics-shake';
 
 const WALL_THICKNESS = 70;
 const FIXED_TIMESTEP = 1000 / 60;
@@ -491,6 +496,8 @@ function ExploreBagCanvas({
   const wallsRef = useRef<Matter.Body[]>([]);
   const worldSizeRef = useRef({ width: 0, height: 0 });
   const photosRef = useRef<PhysicsPhotoItem[]>([]);
+  const previousShakeSampleRef = useRef<ShakeSample | null>(null);
+  const lastShakeAtRef = useRef(0);
   const [photos, setPhotos] = useState<PhysicsPhotoItem[]>([]);
   const [canvasSize, setCanvasSize] = useState<WorldSize>({ width: 0, height: 0 });
   const [frame, setFrame] = useState(0);
@@ -593,11 +600,20 @@ function ExploreBagCanvas({
     const GRAVITY_SCALE = 0.0018;
     const FORCE_FACTOR = 0.0014;
 
-    const subscription = Accelerometer.addListener(({ x, y }: { x: number; y: number; z: number }) => {
+    const subscription = Accelerometer.addListener(({ x, y, z = 0 }: { x: number; y: number; z: number }) => {
       const engine = engineRef.current;
       const isAndroid = Platform.OS === 'android';
       const axisX = isAndroid ? -x : x;
       const axisY = isAndroid ? y : -y;
+      const nextShakeSample = { axisX, axisY, z };
+      const nowMs = Date.now();
+      const shakeImpulse = detectShakeImpulse(
+        previousShakeSampleRef.current,
+        nextShakeSample,
+        nowMs,
+        lastShakeAtRef.current,
+      );
+      previousShakeSampleRef.current = nextShakeSample;
 
       engine.world.gravity.x = Math.max(-5, Math.min(5, axisX * GRAVITY_MULT));
       engine.world.gravity.y = Math.max(-5, Math.min(5, axisY * GRAVITY_MULT));
@@ -613,6 +629,10 @@ function ExploreBagCanvas({
               y: axisY * FORCE_FACTOR * (body.mass ?? 1),
             });
           }
+        }
+        if (shakeImpulse) {
+          lastShakeAtRef.current = nowMs;
+          applyShakeImpulseToBodies(bodies, shakeImpulse);
         }
       } catch {
         // ignore

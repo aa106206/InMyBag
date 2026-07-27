@@ -55,6 +55,11 @@ import {
   type GeneratedStory,
 } from "@/services/stories";
 import { withSampleStories } from "@/services/story-samples";
+import {
+  applyShakeImpulseToBodies,
+  detectShakeImpulse,
+  type ShakeSample,
+} from "@/utils/physics-shake";
 
 const TARGET_OBJECT_SIZE = 112;
 const H_PADDING = 16;
@@ -1544,6 +1549,8 @@ export default function BagStackScreen() {
   const wallsRef = useRef<Matter.Body[]>([]);
   const worldSizeRef = useRef<WorldSize>({ width: 0, height: 0 });
   const savedItemsLoadIdRef = useRef(0);
+  const previousShakeSampleRef = useRef<ShakeSample | null>(null);
+  const lastShakeAtRef = useRef(0);
 
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
   const [canvasSize, setCanvasSize] = useState<WorldSize>({ width: 0, height: 0 });
@@ -1725,11 +1732,20 @@ export default function BagStackScreen() {
     const GRAVITY_SCALE = 0.0018;
     const FORCE_FACTOR = 0.0014;
 
-    const subscription = Accelerometer.addListener(({ x, y }: { x: number; y: number; z: number }) => {
+    const subscription = Accelerometer.addListener(({ x, y, z = 0 }: { x: number; y: number; z: number }) => {
       const engine = engineRef.current;
       const isAndroid = Platform.OS === "android";
       const axisX = isAndroid ? -x : x;
       const axisY = isAndroid ? y : -y;
+      const nextShakeSample = { axisX, axisY, z };
+      const nowMs = Date.now();
+      const shakeImpulse = detectShakeImpulse(
+        previousShakeSampleRef.current,
+        nextShakeSample,
+        nowMs,
+        lastShakeAtRef.current,
+      );
+      previousShakeSampleRef.current = nextShakeSample;
 
       engine.world.gravity.x = Math.max(-5, Math.min(5, axisX * GRAVITY_MULT));
       engine.world.gravity.y = Math.max(-5, Math.min(5, axisY * GRAVITY_MULT));
@@ -1745,6 +1761,10 @@ export default function BagStackScreen() {
               y: axisY * FORCE_FACTOR * (body.mass ?? 1),
             });
           }
+        }
+        if (shakeImpulse) {
+          lastShakeAtRef.current = nowMs;
+          applyShakeImpulseToBodies(bodies, shakeImpulse);
         }
       } catch {
         // ignore
@@ -2238,24 +2258,41 @@ export default function BagStackScreen() {
         onClose={closeBagViews}
       />
 
-      <View style={[styles.topBar, { paddingTop: insets.top + 12 }]}>
-        <Image source={require("@/assets/images/SnapBag.png")} style={styles.logoImage} />
-        <View style={styles.topCopy}>
-          <View style={styles.titleRow}>
-            <Text style={styles.topTitle}>{showHistory ? "이야기 책장" : "내 가방"}</Text>
-            {!showHistory ? (
-              <Pressable style={styles.viewsBadgeButton} onPress={openBagViews} hitSlop={8}>
-                <Text style={styles.viewsBadgeText}>조회</Text>
-              </Pressable>
-            ) : null}
-          </View>
-        </View>
+      <View style={[styles.topBar, { paddingTop: insets.top + 2 }]}>
+        <Image
+          source={require("@/assets/images/snapbag-feed-logo.png")}
+          style={styles.headerBrandLogo}
+          resizeMode="contain"
+        />
         <Pressable
-          style={[styles.modeToggle, showHistory ? styles.modeToggleActive : undefined]}
-          onPress={() => setShowHistory((value) => !value)}
+          style={[styles.viewsBadgeButton, styles.topViewsButton, { top: insets.top + 9 }]}
+          onPress={openBagViews}
+          hitSlop={8}
         >
-          <View style={[styles.toggleThumb, showHistory ? styles.toggleThumbActive : undefined]} />
+          <Text style={styles.viewsBadgeText}>조회</Text>
         </Pressable>
+        <View style={styles.bagModeTabs}>
+          <Pressable
+            style={styles.bagModeTab}
+            onPress={() => setShowHistory(false)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: !showHistory }}
+          >
+            <Text style={[styles.bagModeTabText, !showHistory && styles.bagModeTabTextActive]}>
+              내 가방
+            </Text>
+          </Pressable>
+          <Pressable
+            style={styles.bagModeTab}
+            onPress={() => setShowHistory(true)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: showHistory }}
+          >
+            <Text style={[styles.bagModeTabText, showHistory && styles.bagModeTabTextActive]}>
+              이야기 책장
+            </Text>
+          </Pressable>
+        </View>
       </View>
 
       {showHistory ? (
@@ -2581,14 +2618,41 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   topBar: {
-    flexDirection: "row",
     alignItems: "center",
-    gap: 12,
     paddingHorizontal: H_PADDING,
-    paddingBottom: 12,
+    paddingBottom: 8,
     backgroundColor: Brand.surfaceElevated,
     borderBottomWidth: 1,
     borderBottomColor: Brand.borderSoft,
+  },
+  headerBrandLogo: {
+    width: 150,
+    height: 34,
+  },
+  topViewsButton: {
+    position: "absolute",
+    right: H_PADDING,
+  },
+  bagModeTabs: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 34,
+    marginTop: 4,
+  },
+  bagModeTab: {
+    minHeight: 28,
+    justifyContent: "center",
+    paddingHorizontal: 2,
+  },
+  bagModeTabText: {
+    color: Brand.mutedSoft,
+    fontSize: 17,
+    lineHeight: 23,
+    fontWeight: "900",
+  },
+  bagModeTabTextActive: {
+    color: Brand.text,
   },
   logoImage: {
     width: 46,
