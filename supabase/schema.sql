@@ -11,6 +11,9 @@ create table if not exists public.profiles (
 
 alter table public.profiles add column if not exists email text unique;
 
+-- 계정 공개 범위. 비공개 계정의 가방은 서로 친구인 사람만 볼 수 있고 둘러보기에서 빠진다.
+alter table public.profiles add column if not exists is_private boolean not null default false;
+
 create table if not exists public.bag_stacks (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
@@ -568,25 +571,51 @@ $$;
 revoke execute on function public.record_bag_view(uuid) from public, anon;
 grant execute on function public.record_bag_view(uuid) to authenticated;
 
--- 둘러보기(Explore): 로그인한 사용자는 친구가 아니어도 모든 가방을 "읽기"만 할 수 있다.
--- (쓰기 권한은 그대로 본인만.) 기존 친구 전용 정책과 OR로 합쳐져 전체 읽기가 허용된다.
+-- 둘러보기(Explore): 로그인한 사용자는 친구가 아니어도 "공개 계정"의 가방을 읽을 수 있다.
+-- (쓰기 권한은 그대로 본인만.) 비공개 계정의 가방은 위의 본인/친구 읽기 정책으로만 접근된다.
 drop policy if exists "Signed-in users can read all bag stacks" on public.bag_stacks;
-create policy "Signed-in users can read all bag stacks"
+drop policy if exists "Signed-in users can read public bag stacks" on public.bag_stacks;
+create policy "Signed-in users can read public bag stacks"
   on public.bag_stacks
   for select
   to authenticated
-  using (true);
+  using (
+    exists (
+      select 1
+      from public.profiles
+      where profiles.id = bag_stacks.user_id
+        and coalesce(profiles.is_private, false) = false
+    )
+  );
 
 drop policy if exists "Signed-in users can read all bag items" on public.bag_items;
-create policy "Signed-in users can read all bag items"
+drop policy if exists "Signed-in users can read public bag items" on public.bag_items;
+create policy "Signed-in users can read public bag items"
   on public.bag_items
   for select
   to authenticated
-  using (true);
+  using (
+    exists (
+      select 1
+      from public.bag_stacks
+      join public.profiles on profiles.id = bag_stacks.user_id
+      where bag_stacks.id = bag_items.bag_stack_id
+        and coalesce(profiles.is_private, false) = false
+    )
+  );
 
 drop policy if exists "Signed-in users can read all bag item images" on storage.objects;
-create policy "Signed-in users can read all bag item images"
+drop policy if exists "Signed-in users can read public bag item images" on storage.objects;
+create policy "Signed-in users can read public bag item images"
   on storage.objects
   for select
   to authenticated
-  using (bucket_id = 'bag-items');
+  using (
+    bucket_id = 'bag-items'
+    and exists (
+      select 1
+      from public.profiles
+      where profiles.id::text = split_part(name, '/', 1)
+        and coalesce(profiles.is_private, false) = false
+    )
+  );

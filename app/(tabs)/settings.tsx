@@ -42,6 +42,7 @@ type AccountEditMode = 'email' | 'password';
 const accountActions: SettingsAction[] = [
   { id: 'password', label: '비밀번호 변경', icon: 'lock.fill' },
   { id: 'email', label: '이메일 변경', icon: 'envelope.fill' },
+  { id: 'privacy', label: '공개 범위', icon: 'eye.fill' },
 ];
 
 const friendActions: SettingsAction[] = [
@@ -56,9 +57,6 @@ const supportActions: SettingsAction[] = [
 const logoutActions: SettingsAction[] = [
   { id: 'logout', label: '로그아웃', icon: 'rectangle.portrait.and.arrow.right' },
 ];
-
-const defaultProfileImage =
-  'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400';
 
 function isValidEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
@@ -142,7 +140,8 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { signOut, updateEmail, updatePassword, user } = useAuth();
   const displayName = user?.email ?? 'SnapBag User';
-  const [profileImageUri, setProfileImageUri] = useState(defaultProfileImage);
+  // null이면 아직 프로필 사진이 없는 상태라 기본 실루엣 아이콘을 보여준다.
+  const [profileImageUri, setProfileImageUri] = useState<string | null>(null);
   const [isProfileImageSaving, setIsProfileImageSaving] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
   const [showContact, setShowContact] = useState(false);
@@ -161,7 +160,7 @@ export default function SettingsScreen() {
     let isMounted = true;
 
     if (!user) {
-      setProfileImageUri(defaultProfileImage);
+      setProfileImageUri(null);
       return () => {
         isMounted = false;
       };
@@ -170,7 +169,7 @@ export default function SettingsScreen() {
     loadCurrentProfile(user)
       .then((profile) => {
         if (isMounted) {
-          setProfileImageUri(profile.avatarUrl || defaultProfileImage);
+          setProfileImageUri(profile.avatarUrl || null);
         }
       })
       .catch((error) => {
@@ -207,6 +206,11 @@ export default function SettingsScreen() {
   const handleAccountAction = (action: SettingsAction) => {
     if (action.id === 'email' || action.id === 'password') {
       openAccountModal(action.id);
+      return;
+    }
+
+    if (action.id === 'privacy') {
+      router.push('/privacy-settings');
     }
   };
 
@@ -617,11 +621,17 @@ export default function SettingsScreen() {
       >
         <View style={styles.profile}>
           <View style={styles.profileImageWrap}>
-            <Image
-              source={{ uri: profileImageUri }}
-              style={styles.profileImage}
-              contentFit="cover"
-            />
+            {profileImageUri ? (
+              <Image
+                source={{ uri: profileImageUri }}
+                style={styles.profileImage}
+                contentFit="cover"
+              />
+            ) : (
+              <View style={[styles.profileImage, styles.profileImageFallback]}>
+                <IconSymbol name="person.fill" size={54} color="#B9B3C9" />
+              </View>
+            )}
             <Pressable
               style={({ pressed }) => [
                 styles.profileAddButton,
@@ -925,6 +935,12 @@ const styles = StyleSheet.create({
     backgroundColor: Brand.surface,
     borderWidth: 3,
     borderColor: Brand.primary,
+  },
+  // 프로필 사진이 없을 때 보여주는 기본 실루엣.
+  profileImageFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EDEAF4',
   },
   profileAddButton: {
     position: 'absolute',

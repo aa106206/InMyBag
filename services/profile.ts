@@ -14,7 +14,20 @@ type UploadImageData = {
 
 export type CurrentProfile = {
   avatarUrl: string | null;
+  // 비공개 계정이면 서로 친구인 사람에게만 가방이 공개되고 둘러보기에서 빠진다.
+  isPrivate: boolean;
 };
+
+// is_private 컬럼 마이그레이션을 아직 적용하지 않은 DB에서도 동작하도록 판별한다.
+function isMissingPrivacyColumnError(error: { code?: string; message?: string } | null) {
+  if (!error) {
+    return false;
+  }
+
+  return error.code === '42703'
+    || error.code === 'PGRST204'
+    || (error.message ?? '').includes('is_private');
+}
 
 function getProfileImageStoragePath(value: string | null) {
   if (!value) {
@@ -162,11 +175,22 @@ async function ensureProfile(user: User) {
 }
 
 export async function loadCurrentProfile(user: User): Promise<CurrentProfile> {
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('profiles')
-    .select('avatar_url')
+    .select('avatar_url, is_private')
     .eq('id', user.id)
-    .maybeSingle<{ avatar_url: string | null }>();
+    .maybeSingle<{ avatar_url: string | null; is_private: boolean | null }>();
+
+  if (error && isMissingPrivacyColumnError(error)) {
+    const legacy = await supabase
+      .from('profiles')
+      .select('avatar_url')
+      .eq('id', user.id)
+      .maybeSingle<{ avatar_url: string | null }>();
+
+    error = legacy.error;
+    data = legacy.data ? { ...legacy.data, is_private: null } : null;
+  }
 
   if (error) {
     throw error;
@@ -177,7 +201,42 @@ export async function loadCurrentProfile(user: User): Promise<CurrentProfile> {
 
   return {
     avatarUrl: await resolveProfileAvatarUrl(avatarValue),
+    isPrivate: data?.is_private ?? false,
   };
+}
+
+// 계정 공개 범위를 저장한다. true면 비공개 계정이 된다.
+export async function updateProfileVisibility(user: User, isPrivate: boolean) {
+  await ensureProfile(user);
+
+  const { error } = await supabase
+    .from('profiles')
+    .update({ is_private: isPrivate })
+    .eq('id', user.id);
+
+  if (error) {
+    throw error;
+  }
+}
+
+export function getProfileVisibilityErrorMessage(error: unknown) {
+  const source = error as { code?: string; message?: string } | null;
+
+  if (isMissingPrivacyColumnError(source)) {
+    return 'Supabase DB에 공개 범위 컬럼이 없어요. 프로젝트의 profile_privacy 마이그레이션을 적용해 주세요.';
+  }
+
+  const message = source?.message?.toLowerCase() ?? '';
+
+  if (message.includes('row-level security') || message.includes('permission')) {
+    return '공개 범위를 변경할 권한이 없어요. Supabase RLS 정책을 확인해 주세요.';
+  }
+
+  if (message.includes('network')) {
+    return '네트워크 연결 때문에 공개 범위를 저장하지 못했어요.';
+  }
+
+  return '공개 범위를 저장하지 못했어요. 잠시 후 다시 시도해 주세요.';
 }
 
 export async function updateProfileAvatar(user: User, uri: string) {
