@@ -42,6 +42,7 @@ type AccountEditMode = 'email' | 'password';
 const accountActions: SettingsAction[] = [
   { id: 'password', label: '비밀번호 변경', icon: 'lock.fill' },
   { id: 'email', label: '이메일 변경', icon: 'envelope.fill' },
+  { id: 'privacy', label: '공개 범위', icon: 'eye.fill' },
 ];
 
 const friendActions: SettingsAction[] = [
@@ -206,6 +207,11 @@ export default function SettingsScreen() {
   const handleAccountAction = (action: SettingsAction) => {
     if (action.id === 'email' || action.id === 'password') {
       openAccountModal(action.id);
+      return;
+    }
+
+    if (action.id === 'privacy') {
+      router.push('/privacy-settings');
     }
   };
 
