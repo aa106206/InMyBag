@@ -65,6 +65,9 @@ const TARGET_OBJECT_SIZE = 112;
 const H_PADDING = 16;
 const WALL_THICKNESS = 60;
 const FIXED_TIMESTEP = 1000 / 60;
+const SHUTTER_BUTTON_SIZE = 78;
+const SHUTTER_BUTTON_BOTTOM = 22;
+const SHUTTER_OBSTACLE_RADIUS = SHUTTER_BUTTON_SIZE / 2 + 6;
 const MAX_PHOTO_NOTE_LENGTH = 120;
 const DEFAULT_PHOTO_LOCATION_NAME = "위치 정보 없음";
 // AI 서버가 어차피 긴 변 1024px로 줄여 처리하므로, 업로드 전에 미리 같은 크기로 줄인다.
@@ -285,6 +288,20 @@ function createWalls(width: number, height: number) {
   );
 
   return [ground, leftWall, rightWall, topWall];
+}
+
+function createShutterObstacle(width: number, height: number) {
+  return Bodies.circle(
+    width / 2,
+    height - SHUTTER_BUTTON_BOTTOM - SHUTTER_BUTTON_SIZE / 2,
+    SHUTTER_OBSTACLE_RADIUS,
+    {
+      isStatic: true,
+      label: "shutter-obstacle",
+      friction: 0.9,
+      restitution: 0.18,
+    },
+  );
 }
 
 // 화면 위쪽에서 떨어지는 사진 물리 바디를 만든다. 최초 로딩과 화면 초기화에서 함께 쓴다.
@@ -1588,6 +1605,7 @@ export default function BagStackScreen() {
   const { user } = useAuth();
   const engineRef = useRef(Engine.create({ gravity: { x: 0, y: 0, scale: 0.002 } }));
   const wallsRef = useRef<Matter.Body[]>([]);
+  const shutterObstacleRef = useRef<Matter.Body | null>(null);
   const worldSizeRef = useRef<WorldSize>({ width: 0, height: 0 });
   const savedItemsLoadIdRef = useRef(0);
   const previousShakeSampleRef = useRef<ShakeSample | null>(null);
@@ -1757,8 +1775,13 @@ export default function BagStackScreen() {
 
     const world = engineRef.current.world;
     wallsRef.current.forEach((wall) => World.remove(world, wall));
+    if (shutterObstacleRef.current) {
+      World.remove(world, shutterObstacleRef.current);
+    }
+
     wallsRef.current = createWalls(width, height);
-    World.add(world, wallsRef.current);
+    shutterObstacleRef.current = createShutterObstacle(width, height);
+    World.add(world, [...wallsRef.current, shutterObstacleRef.current]);
     worldSizeRef.current = { width, height };
   }, []);
 
@@ -3718,13 +3741,13 @@ const styles = StyleSheet.create({
   },
   shutterButton: {
     position: "absolute",
-    bottom: 22,
+    bottom: SHUTTER_BUTTON_BOTTOM,
     alignSelf: "center",
-    width: 78,
-    height: 78,
+    width: SHUTTER_BUTTON_SIZE,
+    height: SHUTTER_BUTTON_SIZE,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 39,
+    borderRadius: SHUTTER_BUTTON_SIZE / 2,
     backgroundColor: Brand.surface,
     borderWidth: 2,
     borderColor: Brand.border,
