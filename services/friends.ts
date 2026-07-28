@@ -29,6 +29,10 @@ export type RespondFriendRequestResult = {
   friendName: string;
 };
 
+export type RemoveFriendResult = {
+  removed: boolean;
+};
+
 export async function fetchFriends(userId: string): Promise<FriendProfile[]> {
   const { data: friendships, error: friendshipsError } = await supabase
     .from("friendships")
@@ -145,6 +149,20 @@ export async function respondFriendRequest(
   };
 }
 
+export async function removeFriend(friendId: string): Promise<RemoveFriendResult> {
+  const { data, error } = await supabase.rpc("remove_friend", {
+    friend_user_id: friendId,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return {
+    removed: Boolean(data?.removed),
+  };
+}
+
 const SEND_ERROR_MESSAGES: Record<string, string> = {
   USER_NOT_FOUND: "해당 아이디의 사용자를 찾을 수 없어요.",
   SELF_REQUEST: "자기 자신에게는 친구 요청을 보낼 수 없어요.",
@@ -163,4 +181,22 @@ export function getFriendRequestErrorMessage(error: unknown): string {
   }
 
   return "요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요.";
+}
+
+const REMOVE_ERROR_MESSAGES: Record<string, string> = {
+  AUTH_REQUIRED: "로그인이 필요해요.",
+  FRIENDSHIP_NOT_FOUND: "이미 삭제됐거나 친구 관계를 찾을 수 없어요.",
+  SELF_REMOVE: "자기 자신은 친구 목록에서 삭제할 수 없어요.",
+};
+
+export function getFriendRemovalErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+
+  for (const [code, koreanMessage] of Object.entries(REMOVE_ERROR_MESSAGES)) {
+    if (message.includes(code)) {
+      return koreanMessage;
+    }
+  }
+
+  return "친구를 삭제하지 못했어요. 잠시 후 다시 시도해 주세요.";
 }
