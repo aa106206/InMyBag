@@ -58,6 +58,8 @@ const logoutActions: SettingsAction[] = [
   { id: 'logout', label: '로그아웃', icon: 'rectangle.portrait.and.arrow.right' },
 ];
 
+const defaultProfileImage = require('@/assets/images/default-profile.png');
+
 function isValidEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
@@ -140,8 +142,7 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { signOut, updateEmail, updatePassword, user } = useAuth();
   const displayName = user?.email ?? 'SnapBag User';
-  // null이면 아직 프로필 사진이 없는 상태라 기본 실루엣 아이콘을 보여준다.
-  const [profileImageUri, setProfileImageUri] = useState<string | null>(null);
+  const [profileImageUri, setProfileImageUri] = useState<string | number>(defaultProfileImage);
   const [isProfileImageSaving, setIsProfileImageSaving] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
   const [showContact, setShowContact] = useState(false);
@@ -160,7 +161,7 @@ export default function SettingsScreen() {
     let isMounted = true;
 
     if (!user) {
-      setProfileImageUri(null);
+      setProfileImageUri(defaultProfileImage);
       return () => {
         isMounted = false;
       };
@@ -169,7 +170,7 @@ export default function SettingsScreen() {
     loadCurrentProfile(user)
       .then((profile) => {
         if (isMounted) {
-          setProfileImageUri(profile.avatarUrl || null);
+          setProfileImageUri(profile.avatarUrl || defaultProfileImage);
         }
       })
       .catch((error) => {
@@ -621,17 +622,11 @@ export default function SettingsScreen() {
       >
         <View style={styles.profile}>
           <View style={styles.profileImageWrap}>
-            {profileImageUri ? (
-              <Image
-                source={{ uri: profileImageUri }}
-                style={styles.profileImage}
-                contentFit="cover"
-              />
-            ) : (
-              <View style={[styles.profileImage, styles.profileImageFallback]}>
-                <IconSymbol name="person.fill" size={54} color="#B9B3C9" />
-              </View>
-            )}
+            <Image
+              source={typeof profileImageUri === 'string' ? { uri: profileImageUri } : profileImageUri}
+              style={styles.profileImage}
+              contentFit="cover"
+            />
             <Pressable
               style={({ pressed }) => [
                 styles.profileAddButton,
@@ -935,12 +930,6 @@ const styles = StyleSheet.create({
     backgroundColor: Brand.surface,
     borderWidth: 3,
     borderColor: Brand.primary,
-  },
-  // 프로필 사진이 없을 때 보여주는 기본 실루엣.
-  profileImageFallback: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#EDEAF4',
   },
   profileAddButton: {
     position: 'absolute',

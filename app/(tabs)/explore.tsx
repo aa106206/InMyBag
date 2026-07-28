@@ -302,7 +302,7 @@ function PhysicsPhoto({
         clearLongPressTimer();
         longPressTimerRef.current = setTimeout(() => {
           onOpenPhotoInfoRef.current(photo);
-        }, 1000);
+        }, 500);
         scheduleDragFallback();
         dragStartRef.current = { x: body.position.x, y: body.position.y };
         Body.setStatic(body, true);
