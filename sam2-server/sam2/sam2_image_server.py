@@ -445,6 +445,32 @@ def segment_image_bytes(
     }
 
 
+@app.on_event("startup")
+async def warmup_models() -> None:
+    """데모/시연 중 첫 요청이 모델 로드 때문에 수십 초 걸리지 않도록 미리 로드합니다.
+
+    실패해도 서버는 뜨고, 해당 모델은 첫 요청 때 다시 로드를 시도합니다.
+    AI_SERVER_WARMUP=0 으로 끌 수 있습니다.
+    """
+    if os.environ.get("AI_SERVER_WARMUP", "1") != "1":
+        return
+
+    def _warmup() -> None:
+        try:
+            get_predictor()
+            logger.info("Warmup: SAM2 predictor ready")
+        except Exception:
+            logger.exception("Warmup: SAM2 load failed (will retry on first request)")
+        try:
+            dino = get_dino_module()
+            dino.get_grounding_dino()
+            logger.info("Warmup: Grounding DINO ready")
+        except Exception:
+            logger.exception("Warmup: Grounding DINO load failed (will retry on first request)")
+
+    await run_in_threadpool(_warmup)
+
+
 @app.get("/healthy")
 def healthy() -> dict[str, str]:
     """서버가 켜져 있는지 확인하는 간단한 헬스 체크 API입니다."""
@@ -497,6 +523,57 @@ async def segment(
     except Exception as exc:
         logger.exception("SAM2 segmentation failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# SDXL(KIDO LoRA) 이미지 생성 프록시
+#
+# SDXL 생성 서버는 torch/diffusers 버전이 이 서버와 달라(2.4.1 vs 2.5.1+)
+# 별도 venv 의 프로세스(기본 127.0.0.1:8010, sdxl-lora/scripts/sdxl_server.py)로
+# 돌아갑니다. 앱이 서버 주소를 하나만 알면 되도록 여기서 로컬 전달합니다.
+# (8001 은 RunPod 시스템 nginx 가 사용하므로 피합니다.)
+SDXL_SERVER_URL = os.environ.get("SDXL_SERVER_URL", "http://127.0.0.1:8010").rstrip("/")
+
+
+@app.get("/sdxl/healthy")
+async def sdxl_healthy() -> dict[str, Any]:
+    """SDXL 생성 서버가 준비됐는지 확인합니다."""
+    try:
+        response = await run_in_threadpool(
+            requests.get, f"{SDXL_SERVER_URL}/healthy", timeout=5
+        )
+        return response.json()
+    except requests.RequestException as exc:
+        raise HTTPException(
+            status_code=503, detail=f"SDXL server unreachable: {exc}"
+        ) from exc
+
+
+@app.post("/sdxl/generate")
+async def sdxl_generate(request: Request) -> Any:
+    """KIDO 그림체 이미지 생성 요청을 SDXL 서버로 전달합니다."""
+    payload = await request.json()
+    try:
+        response = await run_in_threadpool(
+            lambda: requests.post(
+                f"{SDXL_SERVER_URL}/generate", json=payload, timeout=180
+            )
+        )
+    except requests.RequestException as exc:
+        logger.exception("SDXL generate proxy failed")
+        raise HTTPException(
+            status_code=503, detail=f"SDXL server unreachable: {exc}"
+        ) from exc
+
+    if response.status_code != 200:
+        detail: Any
+        try:
+            detail = response.json().get("detail", response.text[:1000])
+        except ValueError:
+            detail = response.text[:1000]
+        raise HTTPException(status_code=response.status_code, detail=detail)
+
+    return response.json()
 
 
 @app.post("/story/generate")
