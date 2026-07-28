@@ -9,9 +9,7 @@
     }
   },
   "exclude": [
-    "node_modules",
-    "sam2-server",
-    "grounding dino"
+    "node_modules"
   ],
   "include": [
     "**/*.ts",

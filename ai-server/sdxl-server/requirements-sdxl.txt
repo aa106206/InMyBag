@@ -1,0 +1,20 @@
+# SDXL KIDO LoRA 이미지 생성 서버 의존성
+#
+# 메인 AI 서버(torch 2.5.1+)와 torch 버전이 달라 반드시 "별도 가상환경"에 설치합니다.
+#
+#   python3 -m venv sdxl-server/venv
+#   source sdxl-server/venv/bin/activate
+#   pip install torch==2.4.1 torchvision==0.19.1 --index-url https://download.pytorch.org/whl/cu124
+#   pip install -r sdxl-server/requirements-sdxl.txt
+
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+
+# 학습 환경(diffusers 0.31.0)과 동일하게 고정. 임의 업그레이드 금지.
+accelerate==0.34.2
+diffusers==0.31.0
+huggingface-hub==0.25.2
+hf-transfer==0.1.9
+peft==0.12.0
+safetensors==0.4.5
+transformers==4.44.2

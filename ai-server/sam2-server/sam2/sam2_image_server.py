@@ -26,8 +26,9 @@ logger = logging.getLogger(__name__)
 
 # 이 파일이 있는 sam2 폴더를 기준으로 체크포인트 파일을 찾습니다.
 APP_ROOT = Path(__file__).resolve().parent
-PROJECT_ROOT = APP_ROOT.parents[1]
-DINO_PATH = PROJECT_ROOT / "grounding dino" / "dino.py"
+# ai-server/ 루트 (= ai-server/sam2-server/sam2 의 두 단계 위)
+AI_SERVER_ROOT = APP_ROOT.parents[1]
+DINO_PATH = AI_SERVER_ROOT / "grounding-dino" / "dino.py"
 
 # 너무 큰 이미지는 추론 시간이 길어지므로 긴 변을 1024px로 줄여서 처리합니다.
 MAX_IMAGE_SIZE = 1024
@@ -69,7 +70,7 @@ class StoryGenerateInput(BaseModel):
 
 @lru_cache(maxsize=1)
 def get_dino_module():
-    """공백이 있는 grounding dino 폴더의 dino.py를 동적으로 로딩합니다."""
+    """ai-server/grounding-dino 폴더의 dino.py를 동적으로 로딩합니다."""
     if not DINO_PATH.exists():
         raise RuntimeError(f"Grounding DINO script not found: {DINO_PATH}")
 

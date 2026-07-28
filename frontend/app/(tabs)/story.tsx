@@ -88,7 +88,7 @@ function ObjectRail({ items }: { items: SavedBagItem[] }) {
 const generationSteps = [
   { emoji: '🎒', title: '오늘의 물건을 담는 중', detail: '가방 속 물건들의 이름과 기억을 읽고 있어요.' },
   { emoji: '✍️', title: '당신의 하루를 이야기로 엮는 중', detail: '세 가지 답변을 바탕으로 줄거리를 만들고 있어요.' },
-  { emoji: '🎨', title: '그림일기의 한 장면을 그리는 중', detail: 'Gemini가 물건들이 모두 등장하는 일러스트를 그려요.' },
+  { emoji: '🎨', title: '그림일기의 한 장면을 그리는 중', detail: '직접 학습한 KIDO 그림체 AI가 이야기의 한 장면을 그려요.' },
   { emoji: '✨', title: '마지막 장면을 다듬는 중', detail: '이야기의 여운과 그림의 색감을 맞추고 있어요.' },
 ];
 
@@ -629,7 +629,9 @@ const styles = StyleSheet.create({
   resultSection: { marginTop: 34 },
   storyCard: { borderRadius: 26, overflow: 'hidden', backgroundColor: Brand.surfaceElevated, borderWidth: 1, borderColor: Brand.borderSoft, shadowColor: Brand.text, shadowOpacity: 0.10, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 6 },
   storyCardCompact: { marginBottom: 20 },
-  illustration: { height: 245, overflow: 'hidden' },
+  // 서버가 4:3(1024x768)으로 그려 주므로 컨테이너도 4:3으로 맞춰,
+  // 고정 높이 + cover 조합이 그림 하단을 잘라내던 문제를 없앤다.
+  illustration: { width: '100%', aspectRatio: 4 / 3, overflow: 'hidden' },
   generatedIllustration: { width: '100%', height: '100%' },
   generatedIllustrationShade: { position: 'absolute', left: 0, right: 0, top: 0, height: 64, backgroundColor: 'rgba(56,43,66,0.08)' },
   ground: { position: 'absolute', left: -20, right: -20, bottom: -42, height: 105, borderRadius: 80, backgroundColor: '#B8CFAE' },

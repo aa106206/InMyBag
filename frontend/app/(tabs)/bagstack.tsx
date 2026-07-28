@@ -1451,12 +1451,10 @@ function StoryReaderModal({
   onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
-  const { height: windowHeight } = Dimensions.get("window");
   if (!story) return null;
 
   const theme = storyTheme(story);
   const image = story.illustrationUrl || story.imageUrls?.[0];
-  const imageHeight = Math.min(300, Math.max(210, windowHeight * 0.28));
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
@@ -1471,7 +1469,15 @@ function StoryReaderModal({
             nestedScrollEnabled
             bounces
           >
-            {image ? <Image source={{ uri: image }} style={[styles.readerImage, { height: imageHeight }]} resizeMode="cover" /> : null}
+            {image ? (
+              // 일러스트는 서버가 4:3으로 그려 주므로 cover여도 잘리지 않는다.
+              // 일러스트가 없어 물건 사진(비율 제각각)을 쓸 때는 contain으로 전체를 보여준다.
+              <Image
+                source={{ uri: image }}
+                style={styles.readerImage}
+                resizeMode={story.illustrationUrl ? "cover" : "contain"}
+              />
+            ) : null}
             <View style={styles.readerBody}>
               <View style={styles.readerMetaRow}>
                 <View style={[styles.emotionChip, { backgroundColor: theme.color }]}>
@@ -3487,6 +3493,8 @@ const styles = StyleSheet.create({
   },
   readerImage: {
     width: "100%",
+    // 고정 높이 + cover가 그림 하단을 잘라내던 문제를 4:3 비율 고정으로 해결.
+    aspectRatio: 4 / 3,
     backgroundColor: Brand.secondary,
   },
   readerBody: {

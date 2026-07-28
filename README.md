@@ -2,27 +2,53 @@
 
 숭실대학교 컴퓨터학부 소프트웨어공모전 2026 프로젝트입니다.
 
-사용자가 사진을 찍으면 AI 서버가 이미지 속 물건 후보를 찾고, 사용자가 선택한 물건을 SAM2로 분리합니다. 분리된 물건은 앱의 가방 화면에 쌓이고, 친구들의 가방과 랭킹도 확인할 수 있습니다.
+사용자가 사진을 찍으면 AI 서버가 이미지 속 물건 후보를 찾고, 사용자가 선택한 물건을 SAM2로 분리합니다. 분리된 물건은 앱의 가방 화면에 쌓이고, 친구들의 가방과 랭킹도 확인할 수 있습니다. 하루의 물건들로 그림일기(이야기: Gemini, 일러스트: 직접 파인튜닝한 SDXL KIDO LoRA)도 만들 수 있습니다.
 
 ## 1. 프로젝트 구성
 
+코드는 크게 **frontend(Expo 앱)** 와 **ai-server(AI 서버)** 두 부분으로 나뉩니다.
+
 ```text
 InMyBag/
-├─ app/                         Expo Router 화면
-├─ assets/                      이미지, 로고, 더미 객체 이미지
-├─ components/                  공통 UI 컴포넌트
-├─ constants/                   색상/테마
-├─ grounding dino/              Gemini + Grounding DINO bbox 탐지 코드
-├─ services/                    Supabase, AI 서버 API 호출 코드
-├─ supabase/                    DB schema
-├─ sam2-server/                 FastAPI + SAM2 서버
-│  └─ sam2/
-│     ├─ sam2_image_server.py   AI 서버 실행 파일
-│     ├─ checkpoints/           SAM2 모델 파일 위치
-│     └─ sam2/                  SAM2 패키지 코드
-├─ package.json                 Expo 앱 의존성
-├─ requirements.txt             Python AI 서버 의존성
+├─ frontend/                       Expo(React Native) 앱 — 노트북에서 실행
+│  ├─ app/                         Expo Router 화면
+│  ├─ components/                  공통 UI 컴포넌트
+│  ├─ constants/                   색상/테마
+│  ├─ hooks/                       인증 등 공통 훅
+│  ├─ services/                    Supabase, AI 서버 API 호출 코드
+│  ├─ assets/                      이미지, 로고
+│  ├─ supabase/                    DB schema / 마이그레이션 SQL
+│  ├─ package.json                 앱 의존성
+│  └─ .env                         앱 환경변수 (.env.example 참고)
+│
+├─ ai-server/                      AI 서버 — RunPod(GPU) 또는 로컬에서 실행
+│  ├─ start-ai-servers.sh          ★ 서버 일괄 시작 (이것만 실행하면 됨)
+│  ├─ stop-ai-servers.sh           서버 일괄 중지
+│  ├─ smoke-test.sh                데모 전 전체 엔드포인트 점검
+│  ├─ sam2-server/
+│  │  └─ sam2/
+│  │     ├─ sam2_image_server.py   메인 AI 서버 (포트 8000)
+│  │     ├─ story_generation.py    그림일기 생성 (이야기: Gemini / 일러스트: SDXL)
+│  │     ├─ checkpoints/           SAM2 모델 파일 위치 (Drive로 공유)
+│  │     └─ sam2/                  SAM2 패키지 코드
+│  ├─ sdxl-server/                 SDXL KIDO LoRA 일러스트 서버 (포트 8010, 별도 venv)
+│  │  ├─ sdxl_server.py
+│  │  └─ checkpoints/kido-lora/    파인튜닝한 LoRA 가중치 (Drive로 공유)
+│  ├─ grounding-dino/              Gemini + Grounding DINO bbox 탐지 코드
+│  ├─ requirements.txt             메인 AI 서버 의존성
+│  └─ .env                         AI 서버 환경변수 (GEMINI_API_KEY)
+│
 └─ README.md
+```
+
+실행 흐름:
+
+```text
+노트북 (frontend, Expo 앱)
+   │  EXPO_PUBLIC_SAM2_SERVER_URL=https://<RunPod 포드 ID>-8000.proxy.runpod.net
+   ▼
+RunPod 포트 8000 — 메인 AI 서버 (/detect, /segment, /story/generate)
+   └─ 내부 8010 — SDXL KIDO LoRA 서버 (일러스트. 죽어 있으면 Gemini로 자동 폴백)
 ```
 
 ## 2. GitHub에 올리지 않는 파일
@@ -30,193 +56,133 @@ InMyBag/
 아래 파일은 용량이 크거나 로컬 환경마다 달라서 GitHub에 올리지 않습니다.
 
 ```text
-node_modules/
-sam2-server/venv/
-sam2-server/sam2/venv/
-sam2-server/sam2/checkpoints/*.pt
-.env
-__pycache__/
-*.pyc
-*.pt
-*.pth
-*.onnx
-*.safetensors
-*.bin
-*.ckpt
+frontend/node_modules/
+ai-server/.venv/  (모든 venv)
+ai-server/logs/
+ai-server/sam2-server/sam2/checkpoints/*.pt
+ai-server/sdxl-server/checkpoints/kido-lora/*.safetensors
+.env (모든 위치)
+__pycache__/, *.pyc
 ```
 
-SAM2 checkpoint는 Google Drive로 따로 공유합니다.
-
-Drive에서 받은 파일은 아래 위치에 넣어주세요.
+모델 파일은 Google Drive로 따로 공유합니다. 받은 파일을 아래 위치에 넣어주세요.
 
 ```text
-InMyBag/sam2-server/sam2/checkpoints/
-```
-
-최종 구조는 이렇게 되어야 합니다.
-
-```text
-sam2-server/sam2/checkpoints/
+ai-server/sam2-server/sam2/checkpoints/
 ├─ download_ckpts.sh
-├─ sam2.1_hiera_base_plus.pt
-├─ sam2.1_hiera_large.pt
-├─ sam2.1_hiera_small.pt
-└─ sam2.1_hiera_tiny.pt
-```
+├─ sam2.1_hiera_small.pt      ← 기본 사용
+└─ sam2.1_hiera_large.pt      ← SAM2_MODEL=large 로 선택 가능
 
-현재 서버는 기본적으로 `sam2.1_hiera_large.pt`를 사용합니다.
+ai-server/sdxl-server/checkpoints/kido-lora/
+└─ pytorch_lora_weights.safetensors
+```
 
 ## 3. 준비물
 
-- Node.js 20.19 이상
-- Python 3.10 이상
-- Expo Go 앱 또는 iOS Simulator / Android Emulator
-- Gemini API Key
+- (frontend) Node.js 20.19 이상, Expo Go 앱 또는 시뮬레이터
+- (ai-server) Python 3.10 이상, Gemini API Key
+- (ai-server, 일러스트) CUDA GPU — 없으면 SDXL은 건너뛰고 Gemini 폴백으로 동작
 - Google Maps API Key
-- Google Drive로 공유받은 `checkpoints` 폴더
+- Google Drive로 공유받은 모델 파일들
 
-Expo SDK 54는 Node.js `20.19.x` 이상을 권장합니다.
+## 4. AI 서버 설치 (RunPod 또는 로컬)
 
-## 4. 처음 설치하기
-
-터미널을 열고 프로젝트 폴더로 이동합니다.
+### 4-1. 메인 AI 서버 venv
 
 ```bash
-cd "/본인경로/InMyBag"
+cd InMyBag
+python3 -m venv ai-server/.venv
+source ai-server/.venv/bin/activate
+python -m pip install --upgrade pip wheel
+python -m pip install -r ai-server/requirements.txt
+SAM2_BUILD_CUDA=0 python -m pip install -e ai-server/sam2-server/sam2
 ```
 
-### 4-1. 앱 의존성 설치
+### 4-2. SDXL 서버 venv (선택 — 그림일기 일러스트용, GPU 필요)
+
+torch 버전이 메인 서버와 달라 **반드시 별도 venv**를 씁니다.
+자세한 내용은 `ai-server/sdxl-server/README.md` 참고.
+venv가 없으면 시작 스크립트가 SDXL만 건너뛰고, 일러스트는 Gemini로 폴백합니다.
+
+### 4-3. 환경변수
 
 ```bash
+cp ai-server/.env.example ai-server/.env
+# GEMINI_API_KEY=본인_키  한 줄만 채우면 됩니다 (서버가 자동으로 읽음)
+```
+
+## 5. AI 서버 실행
+
+```bash
+bash ai-server/start-ai-servers.sh
+```
+
+메인 서버(8000)와 SDXL 서버(8010)를 모두 띄우고, 모델 로드/워밍업까지 기다립니다.
+
+점검과 중지:
+
+```bash
+bash ai-server/smoke-test.sh      # 모든 엔드포인트 실호출 점검
+bash ai-server/stop-ai-servers.sh # 일괄 중지
+tail -50 ai-server/logs/ai-main.log   # 메인 서버 로그
+tail -50 ai-server/logs/ai-sdxl.log   # SDXL 서버 로그
+```
+
+수동 실행(메인 서버만):
+
+```bash
+cd ai-server/sam2-server/sam2
+../../.venv/bin/python -m uvicorn sam2_image_server:app --host 0.0.0.0 --port 8000
+```
+
+## 6. 앱(frontend) 실행
+
+### 6-1. 설치
+
+```bash
+cd frontend
 npm install
 ```
 
-### 4-2. Python 가상환경 생성
+### 6-2. 환경변수
 
 ```bash
-python3 -m venv sam2-server/venv
-source sam2-server/venv/bin/activate
+cp .env.example .env
 ```
 
-터미널 앞에 `(venv)`가 보이면 성공입니다.
+`frontend/.env` 에서 AI 서버 주소를 설정합니다.
 
-### 4-3. AI 서버 의존성 설치
+- RunPod 사용 시: `EXPO_PUBLIC_SAM2_SERVER_URL=https://<포드 ID>-8000.proxy.runpod.net`
+- 노트북에서 서버까지 돌릴 때: `EXPO_PUBLIC_SAM2_SERVER_URL=http://노트북IP:8000`
+  (Mac에서 IP 확인: `ipconfig getifaddr en0`)
 
-```bash
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-```
+Supabase 값을 직접 바꾸고 싶으면 `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY` 도 설정할 수 있습니다.
 
-### 4-4. SAM2 로컬 패키지 설치
-
-Mac에서는 CUDA를 쓰지 않으므로 아래처럼 설치합니다.
+### 6-3. 실행
 
 ```bash
-SAM2_BUILD_CUDA=0 python -m pip install -e sam2-server/sam2
-```
-
-설치 중 CUDA 관련 warning이 나와도 Mac 로컬 테스트에서는 보통 괜찮습니다.
-
-## 5. 환경변수 설정
-
-실제 API Key는 GitHub에 올리지 않습니다.
-
-### 5-1. AI 서버용 Gemini Key
-
-AI 서버를 실행하는 터미널에서 입력합니다.
-
-```bash
-export GEMINI_API_KEY="본인_Gemini_API_Key"
-```
-
-그림일기는 서버 코드에 설정된 `gemini-2.5-flash` 이야기 모델과
-`gemini-3.1-flash-image` 이미지 모델을 자동으로 사용하므로 모델 환경변수를
-별도로 입력할 필요가 없습니다.
-
-이미지 모델 사용 권한과 할당량은 Gemini API 키가 속한 Google AI 프로젝트에서
-활성화되어 있어야 합니다.
-
-### 5-2. 앱용 환경변수
-
-앱을 실행하는 터미널에서 입력합니다.
-
-```bash
-export GOOGLE_MAPS_API_KEY="본인_Google_Maps_API_Key"
-```
-
-Supabase 값을 직접 바꾸고 싶으면 아래도 설정할 수 있습니다.
-
-```bash
-export EXPO_PUBLIC_SUPABASE_URL="본인_Supabase_URL"
-export EXPO_PUBLIC_SUPABASE_ANON_KEY="본인_Supabase_Anon_Key"
-```
-
-휴대폰에서 AI 서버 연결이 안 되면 노트북 IP를 직접 지정합니다.
-
-```bash
-export EXPO_PUBLIC_SAM2_SERVER_URL="http://노트북_IP주소:8000"
-```
-
-Mac에서 노트북 IP 확인:
-
-```bash
-ipconfig getifaddr en0
-```
-
-## 6. AI 서버 실행하기
-
-터미널 1개를 열고 실행합니다.
-
-```bash
-cd "/본인경로/InMyBag"
-source sam2-server/venv/bin/activate
-export GEMINI_API_KEY="본인_Gemini_API_Key"
-
-cd sam2-server/sam2
-python -m uvicorn sam2_image_server:app --host 0.0.0.0 --port 8000
-```
-
-정상 실행 확인:
-
-```bash
-curl http://localhost:8000/healthy
-```
-
-정상이라면 JSON 응답이 나옵니다.
-
-## 7. Expo 앱 실행하기
-
-AI 서버는 켜둔 상태로 새 터미널을 엽니다.
-
-```bash
-cd "/본인경로/InMyBag"
+cd frontend
 npx expo start
 ```
 
-실행 방법:
+- iPhone/Android 실기기: Expo Go로 QR 코드 스캔 (노트북과 같은 Wi-Fi 필요)
+- iOS Simulator: `i` / Android Emulator: `a` / Web: `w`
 
-- iPhone/Android 실기기: Expo Go로 QR 코드 스캔
-- iOS Simulator: 터미널에서 `i`
-- Android Emulator: 터미널에서 `a`
-- Web: 터미널에서 `w`
+## 7. 데모데이 순서 (RunPod)
 
-실기기로 테스트할 때는 노트북과 휴대폰이 같은 Wi-Fi에 있어야 합니다.
+1. RunPod 포드 시작 (HTTP 포트 8000 노출 확인)
+2. `ai-server/.env` 의 `GEMINI_API_KEY` 확인
+3. `bash ai-server/start-ai-servers.sh`
+4. `bash ai-server/smoke-test.sh` — 전부 ✅ 이면 준비 끝
+5. 노트북 `frontend/.env` 에 RunPod 주소 설정 후 `npx expo start`
 
 ## 8. 앱 사용 흐름
 
 ```text
-로그인
-→ 내 가방
-→ 사진 찍기
-→ 객체 후보 탐지
-→ 물건 선택하기
-→ SAM2로 객체 분리
-→ 가방에 추가
+로그인 → 내 가방 → 사진 찍기 → 객체 후보 탐지(Gemini + Grounding DINO)
+→ 물건 선택 → SAM2로 객체 분리 → 가방에 추가
+→ (이야기 탭) 오늘의 물건으로 그림일기 생성 (이야기: Gemini / 일러스트: SDXL KIDO LoRA)
 ```
-
-객체 후보 탐지에는 Gemini API와 Grounding DINO가 사용됩니다.
-
-객체 분리에는 SAM2가 사용됩니다.
 
 ## 9. 자주 나는 문제
 
@@ -225,121 +191,53 @@ npx expo start
 Supabase Dashboard의 SQL Editor에서 아래 마이그레이션 파일 전체를 실행합니다.
 
 ```text
-supabase/migrations/202607170001_bag_item_persistence.sql
+frontend/supabase/migrations/202607170001_bag_item_persistence.sql
 ```
 
-적용하면 private `bag-items` Storage 버킷, 업로드/조회/삭제 RLS 정책,
-`bag_items` 메타데이터 컬럼이 생성됩니다. 이후 Expo 개발 서버를 캐시 초기화해 다시 실행합니다.
+적용 후 Expo 개발 서버를 캐시 초기화해 다시 실행합니다: `npx expo start --clear`
 
-```bash
-npx expo start --clear
-```
+### `No such file or directory: sam2.1_hiera_small.pt`
 
-### `No such file or directory: sam2.1_hiera_large.pt`
-
-SAM2 checkpoint가 없는 상태입니다.
-
-Google Drive에서 받은 `checkpoints` 폴더를 아래 위치에 넣어주세요.
-
-```text
-InMyBag/sam2-server/sam2/checkpoints/
-```
-
-### `./venv/bin/python: no such file or directory`
-
-가상환경을 만들지 않았거나 다른 경로에 만든 상태입니다.
-
-```bash
-cd "/본인경로/InMyBag"
-python3 -m venv sam2-server/venv
-source sam2-server/venv/bin/activate
-```
-
-### `Grounding DINO detection failed`
-
-주요 원인:
-
-- `GEMINI_API_KEY`를 설정하지 않음
-- Gemini API Key가 잘못됨
-- Gemini API가 일시적으로 503 응답을 줌
-- 인터넷 연결 문제
-
-확인:
-
-```bash
-echo $GEMINI_API_KEY
-```
-
-### 휴대폰에서 AI 서버 연결 실패
-
-휴대폰에서 `localhost`는 노트북이 아니라 휴대폰 자신을 의미합니다.
-
-노트북 IP를 확인한 뒤 Expo 실행 전에 지정하세요.
-
-```bash
-export EXPO_PUBLIC_SAM2_SERVER_URL="http://노트북_IP주소:8000"
-npx expo start
-```
+SAM2 checkpoint가 없는 상태입니다. Drive에서 받은 파일을
+`ai-server/sam2-server/sam2/checkpoints/` 에 넣어주세요.
 
 ### `ModuleNotFoundError: No module named 'sam2'`
 
 SAM2 로컬 패키지를 설치하지 않은 상태입니다.
 
 ```bash
-cd "/본인경로/InMyBag"
-source sam2-server/venv/bin/activate
-SAM2_BUILD_CUDA=0 python -m pip install -e sam2-server/sam2
+source ai-server/.venv/bin/activate
+SAM2_BUILD_CUDA=0 python -m pip install -e ai-server/sam2-server/sam2
 ```
+
+### `Grounding DINO detection failed`
+
+- `ai-server/.env` 의 `GEMINI_API_KEY` 미설정/오타
+- Gemini API 일시 오류(503) 또는 네트워크 문제
+
+### 그림일기 일러스트가 Gemini로 나옴 (SDXL이 아님)
+
+SDXL 서버(8010)가 죽어 있으면 자동 폴백된 것입니다.
+
+```bash
+curl http://127.0.0.1:8010/healthy
+tail -50 ai-server/logs/ai-sdxl.log
+```
+
+### 휴대폰에서 AI 서버 연결 실패
+
+휴대폰에서 `localhost` 는 휴대폰 자신입니다. `frontend/.env` 에
+노트북 IP 또는 RunPod 주소를 넣고 `npx expo start` 를 다시 실행하세요.
 
 ## 10. GitHub에 올리기 전 확인
 
-커밋 전에 꼭 확인합니다.
-
 ```bash
 git status
 ```
 
-아래 항목이 `Changes to be committed`에 있으면 안 됩니다.
-
-```text
-node_modules/
-sam2-server/venv/
-sam2-server/sam2/venv/
-sam2-server/sam2/checkpoints/*.pt
-.env
-__pycache__/
-*.pyc
-```
-
-큰 파일이 있는지 확인:
+`node_modules/`, `venv/`, `checkpoints/*.pt`, `*.safetensors`, `.env`, `__pycache__/` 가
+커밋 목록에 있으면 안 됩니다. 큰 파일 확인:
 
 ```bash
-find . -type f -size +50M -not -path "./.git/*" -not -path "./node_modules/*"
-```
-
-`checkpoints/*.pt`, `venv`, `node_modules` 안 파일이 나오면 GitHub에 올리면 안 됩니다.
-
-## 11. 현재 maintainer 주의사항
-
-현재 `sam2-server/sam2` 폴더는 내부에 별도 `.git`이 있는 상태일 수 있습니다.
-
-팀원들이 GitHub에서 AI 서버 코드까지 바로 받게 하려면, 최종 push 전에 `sam2-server/sam2`를 일반 폴더로 정리해야 합니다.
-
-안전한 처리 순서:
-
-```bash
-mv sam2-server/sam2/.git /tmp/sam2-inner-git-backup
-git rm --cached sam2-server/sam2
-git add sam2-server/sam2
-git status
-```
-
-이때 `checkpoints/*.pt`, `venv`, `__pycache__`가 커밋 목록에 보이면 멈추고 `.gitignore`를 먼저 확인해야 합니다.
-
-문제 없으면 커밋합니다.
-
-```bash
-git add .gitignore README.md requirements.txt
-git commit -m "프로젝트 실행 문서와 AI 서버 의존성 정리"
-git push origin feature/dongjun
+find . -type f -size +50M -not -path "./.git/*" -not -path "*/node_modules/*" -not -path "*/.venv/*"
 ```
