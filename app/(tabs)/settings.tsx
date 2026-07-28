@@ -57,8 +57,7 @@ const logoutActions: SettingsAction[] = [
   { id: 'logout', label: '로그아웃', icon: 'rectangle.portrait.and.arrow.right' },
 ];
 
-const defaultProfileImage =
-  'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400';
+const defaultProfileImage = require('@/assets/images/default-profile.png');
 
 function isValidEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
@@ -142,7 +141,7 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { signOut, updateEmail, updatePassword, user } = useAuth();
   const displayName = user?.email ?? 'SnapBag User';
-  const [profileImageUri, setProfileImageUri] = useState(defaultProfileImage);
+  const [profileImageUri, setProfileImageUri] = useState<string | number>(defaultProfileImage);
   const [isProfileImageSaving, setIsProfileImageSaving] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
   const [showContact, setShowContact] = useState(false);
@@ -618,7 +617,7 @@ export default function SettingsScreen() {
         <View style={styles.profile}>
           <View style={styles.profileImageWrap}>
             <Image
-              source={{ uri: profileImageUri }}
+              source={typeof profileImageUri === 'string' ? { uri: profileImageUri } : profileImageUri}
               style={styles.profileImage}
               contentFit="cover"
             />

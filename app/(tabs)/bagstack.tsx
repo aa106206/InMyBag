@@ -1232,7 +1232,7 @@ function PhysicsPhoto({
         clearLongPressTimer();
         longPressTimerRef.current = setTimeout(() => {
           openPhotoInfoRef.current(photo);
-        }, 1000);
+        }, 500);
         scheduleDragFallback();
         Body.setStatic(body, true);
         markDragHeartbeat(body);
