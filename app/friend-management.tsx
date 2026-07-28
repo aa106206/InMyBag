@@ -21,7 +21,9 @@ import {
   fetchIncomingFriendRequests,
   FriendProfile,
   FriendRequest,
+  getFriendRemovalErrorMessage,
   getFriendRequestErrorMessage,
+  removeFriend,
   respondFriendRequest,
   sendFriendRequest,
 } from '@/services/friends';
@@ -52,6 +54,7 @@ export default function FriendManagementScreen() {
   const [addTarget, setAddTarget] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [respondingRequestId, setRespondingRequestId] = useState<string | null>(null);
+  const [removingFriendId, setRemovingFriendId] = useState<string | null>(null);
 
   const loadAll = useCallback(async () => {
     if (!userId) {
@@ -146,6 +149,49 @@ export default function FriendManagementScreen() {
       }
     },
     [loadAll, respondingRequestId],
+  );
+
+  const deleteFriend = useCallback(
+    async (friend: FriendProfile) => {
+      if (removingFriendId) {
+        return;
+      }
+
+      setRemovingFriendId(friend.id);
+      try {
+        await removeFriend(friend.id);
+        setFriends((currentFriends) =>
+          currentFriends.filter((currentFriend) => currentFriend.id !== friend.id),
+        );
+      } catch (error) {
+        Alert.alert('친구 삭제 실패', getFriendRemovalErrorMessage(error));
+      } finally {
+        setRemovingFriendId(null);
+      }
+    },
+    [removingFriendId],
+  );
+
+  const confirmDeleteFriend = useCallback(
+    (friend: FriendProfile) => {
+      const friendName = friend.username.split('@')[0];
+
+      Alert.alert(
+        '친구를 삭제하시겠습니까?',
+        `@${friendName}님을 친구 목록에서 삭제할까요?`,
+        [
+          { text: '아니오', style: 'cancel' },
+          {
+            text: '예',
+            style: 'destructive',
+            onPress: () => {
+              void deleteFriend(friend);
+            },
+          },
+        ],
+      );
+    },
+    [deleteFriend],
   );
 
   const normalizedSearch = searchText.trim().toLowerCase();
@@ -270,6 +316,24 @@ export default function FriendManagementScreen() {
                   <Text style={styles.rowTitle}>@{friend.username.split('@')[0]}</Text>
                   {friend.email ? <Text style={styles.rowSubtitle}>{friend.email}</Text> : null}
                 </View>
+                <Pressable
+                  accessibilityLabel={`${friend.username} 친구 삭제`}
+                  accessibilityRole="button"
+                  hitSlop={10}
+                  style={({ pressed }) => [
+                    styles.deleteFriendButton,
+                    pressed ? styles.deleteFriendButtonPressed : undefined,
+                    removingFriendId === friend.id ? styles.deleteFriendButtonDisabled : undefined,
+                  ]}
+                  onPress={() => confirmDeleteFriend(friend)}
+                  disabled={removingFriendId !== null}
+                >
+                  {removingFriendId === friend.id ? (
+                    <ActivityIndicator color={Brand.danger} size="small" />
+                  ) : (
+                    <Text style={styles.deleteFriendText}>×</Text>
+                  )}
+                </Pressable>
               </View>
             ))}
             {loadError ? (
@@ -442,6 +506,26 @@ const styles = StyleSheet.create({
     color: Brand.muted,
     fontSize: 13,
     fontWeight: '900',
+  },
+  deleteFriendButton: {
+    width: 30,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 15,
+    backgroundColor: 'rgba(207, 65, 48, 0.08)',
+  },
+  deleteFriendButtonPressed: {
+    opacity: 0.72,
+  },
+  deleteFriendButtonDisabled: {
+    opacity: 0.5,
+  },
+  deleteFriendText: {
+    color: Brand.danger,
+    fontSize: 22,
+    fontWeight: '900',
+    lineHeight: 24,
   },
   emptyText: {
     paddingTop: 20,

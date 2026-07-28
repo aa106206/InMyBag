@@ -404,6 +404,41 @@ $$;
 revoke execute on function public.respond_friend_request(uuid, boolean) from public, anon;
 grant execute on function public.respond_friend_request(uuid, boolean) to authenticated;
 
+-- 친구 관계를 양방향으로 삭제한다.
+create or replace function public.remove_friend(friend_user_id uuid)
+returns json
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  current_user_id uuid := auth.uid();
+  removed_count integer;
+begin
+  if current_user_id is null then
+    raise exception 'AUTH_REQUIRED';
+  end if;
+
+  if friend_user_id = current_user_id then
+    raise exception 'SELF_REMOVE';
+  end if;
+
+  delete from public.friendships
+   where (user_id = current_user_id and friend_id = friend_user_id)
+      or (user_id = friend_user_id and friend_id = current_user_id);
+
+  get diagnostics removed_count = row_count;
+
+  if removed_count = 0 then
+    raise exception 'FRIENDSHIP_NOT_FOUND';
+  end if;
+
+  return json_build_object('removed', true);
+end;
+$$;
+
+revoke execute on function public.remove_friend(uuid) from public, anon;
+grant execute on function public.remove_friend(uuid) to authenticated;
+
 -- 친구는 서로의 가방(스택/아이템/이미지)을 읽을 수 있다.
 -- friendships 테이블이 만들어진 뒤에 실행돼야 하므로 파일 뒷부분에서 기존 읽기 정책을 교체한다.
 drop policy if exists "Users can read their own bag stacks" on public.bag_stacks;
