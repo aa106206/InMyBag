@@ -88,6 +88,8 @@ type ShelfDay = {
   day: number;
   dateLabel: string;
   story: GeneratedStory | null;
+  // 이야기가 없어도 이 날 가방에 담은 물건이 있으면 '이 날의 가방'만 열어볼 수 있다.
+  photoCount: number;
 };
 
 type MonthShelfData = {
@@ -100,6 +102,10 @@ type MonthShelfData = {
 };
 
 const SHELF_START_YEAR = 2020;
+
+// 이야기 없이 물건만 담긴 날의 책등 색. 감정 색과 구분되는 중립 톤을 쓴다.
+const BAG_ONLY_SPINE_COLOR = "#5E5670";
+const BAG_ONLY_SPINE_CAP = "#7A7290";
 
 // 하루에 한 편, 그날의 마지막 이야기를 'Y-M-D' 키로 정리한다.
 function buildDayStoryMap(stories: GeneratedStory[]): Map<string, GeneratedStory> {
@@ -132,14 +138,21 @@ function buildShelfForMonth(
   year: number,
   month0: number,
   dayMap: Map<string, GeneratedStory>,
+  dayPhotoCounts: Map<string, number>,
 ): MonthShelfData {
   const daysInMonth = new Date(year, month0 + 1, 0).getDate();
   const days: ShelfDay[] = [];
   let filledCount = 0;
   for (let day = 1; day <= daysInMonth; day += 1) {
-    const story = dayMap.get(`${year}-${month0}-${day}`) ?? null;
+    const dayKey = `${year}-${month0}-${day}`;
+    const story = dayMap.get(dayKey) ?? null;
     if (story) filledCount += 1;
-    days.push({ day, dateLabel: `${month0 + 1}월 ${day}일`, story });
+    days.push({
+      day,
+      dateLabel: `${month0 + 1}월 ${day}일`,
+      story,
+      photoCount: dayPhotoCounts.get(dayKey) ?? 0,
+    });
   }
   return {
     key: `${year}-${month0}`,
@@ -154,8 +167,9 @@ function buildShelfForMonth(
 // 책등 높이를 날짜별로 살짝 다르게 해 실제 책장처럼 보이게 한다.
 // 책장은 스크롤 없이 한 화면에 들어가야 하므로, 고정 px가 아니라
 // 선반 한 칸 높이에 대한 비율로 계산해 화면 크기에 맞춰 늘어나고 줄어들게 한다.
-function spineHeightRatio(day: number, filled: boolean) {
-  if (!filled) return 0.74;
+function spineHeightRatio(day: number, filled: boolean, hasBagPhotos = false) {
+  // 이야기는 없지만 물건이 담긴 날은 빈 날보다 살짝 크게 세워 눌러볼 수 있음을 알린다.
+  if (!filled) return hasBagPhotos ? 0.79 : 0.74;
   return 0.86 + [0, 0.07, 0.03, 0.1, 0.05, 0.02][day % 6];
 }
 
@@ -1264,28 +1278,34 @@ function PhysicsPhoto({
 
 function BookSpine({ item, onPress }: { item: ShelfDay; onPress: () => void }) {
   const filled = !!item.story;
+  const bagOnly = !filled && item.photoCount > 0;
   const theme = item.story ? storyTheme(item.story) : null;
-  const heightPercent = `${Math.round(spineHeightRatio(item.day, filled) * 100)}%` as const;
+  const heightPercent = `${Math.round(spineHeightRatio(item.day, filled, bagOnly) * 100)}%` as const;
 
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={
-        filled ? `${item.dateLabel} 이야기 · ${theme?.label}` : `${item.dateLabel} 빈 자리`
+        filled
+          ? `${item.dateLabel} 이야기 · ${theme?.label}`
+          : bagOnly
+            ? `${item.dateLabel} 가방 기록 · 물건 ${item.photoCount}개`
+            : `${item.dateLabel} 빈 자리`
       }
       style={[
         styles.spine,
         {
           width: SPINE_WIDTH,
           height: heightPercent,
-          backgroundColor: filled ? theme!.color : "#413C4A",
+          backgroundColor: filled ? theme!.color : bagOnly ? BAG_ONLY_SPINE_COLOR : "#413C4A",
         },
         filled && styles.spineFilled,
       ]}
     >
       {filled ? <View style={[styles.spineCap, { backgroundColor: theme!.cap }]} /> : null}
-      {filled ? <Text style={styles.spineDay}>{item.day}</Text> : null}
+      {bagOnly ? <View style={[styles.spineCap, { backgroundColor: BAG_ONLY_SPINE_CAP }]} /> : null}
+      {filled || bagOnly ? <Text style={styles.spineDay}>{item.day}</Text> : null}
     </Pressable>
   );
 }
@@ -1443,19 +1463,22 @@ const READER_BAG_SPOTS = [
 
 function StoryReaderModal({
   story,
+  bagDayLabel,
   dayPhotos,
   onClose,
 }: {
   story: GeneratedStory | null;
+  // 이야기가 없는 날을 열었을 때 헤더에 보여줄 날짜 문구. story가 없어도 이 값이 있으면 '이 날의 가방'만 보여준다.
+  bagDayLabel: string | null;
   dayPhotos: ReaderDayPhoto[];
   onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = Dimensions.get("window");
-  if (!story) return null;
+  if (!story && !bagDayLabel) return null;
 
-  const theme = storyTheme(story);
-  const image = story.illustrationUrl || story.imageUrls?.[0];
+  const theme = story ? storyTheme(story) : null;
+  const image = story ? story.illustrationUrl || story.imageUrls?.[0] : null;
   const imageHeight = Math.min(300, Math.max(210, windowHeight * 0.28));
 
   return (
@@ -1473,27 +1496,45 @@ function StoryReaderModal({
           >
             {image ? <Image source={{ uri: image }} style={[styles.readerImage, { height: imageHeight }]} resizeMode="cover" /> : null}
             <View style={styles.readerBody}>
-              <View style={styles.readerMetaRow}>
-                <View style={[styles.emotionChip, { backgroundColor: theme.color }]}>
-                  <Text style={styles.emotionChipText}>{theme.emoji} {theme.label}</Text>
-                </View>
-                <Text style={styles.readerDate}>{formatReaderDate(story.createdAt)}</Text>
-              </View>
-              <Text style={styles.readerTitle}>{story.title}</Text>
-              <View style={styles.readerDivider} />
-              <Text style={styles.readerText}>{story.body}</Text>
-              {story.itemLabels?.length ? (
-                <View style={styles.readerTags}>
-                  {story.itemLabels.slice(0, 6).map((label, index) => (
-                    <View key={`${label}-${index}`} style={styles.readerTag}>
-                      <Text style={styles.readerTagText}>#{label}</Text>
+              {story && theme ? (
+                <>
+                  <View style={styles.readerMetaRow}>
+                    <View style={[styles.emotionChip, { backgroundColor: theme.color }]}>
+                      <Text style={styles.emotionChipText}>{theme.emoji} {theme.label}</Text>
                     </View>
-                  ))}
-                </View>
-              ) : null}
+                    <Text style={styles.readerDate}>{formatReaderDate(story.createdAt)}</Text>
+                  </View>
+                  <Text style={styles.readerTitle}>{story.title}</Text>
+                  <View style={styles.readerDivider} />
+                  <Text style={styles.readerText}>{story.body}</Text>
+                  {story.itemLabels?.length ? (
+                    <View style={styles.readerTags}>
+                      {story.itemLabels.slice(0, 6).map((label, index) => (
+                        <View key={`${label}-${index}`} style={styles.readerTag}>
+                          <Text style={styles.readerTagText}>#{label}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <View style={styles.readerMetaRow}>
+                    <View style={[styles.emotionChip, { backgroundColor: BAG_ONLY_SPINE_COLOR }]}>
+                      <Text style={styles.emotionChipText}>👜 가방 기록</Text>
+                    </View>
+                    <Text style={styles.readerDate}>{bagDayLabel}</Text>
+                  </View>
+                  <Text style={styles.readerTitle}>이 날의 가방</Text>
+                  <View style={styles.readerDivider} />
+                  <Text style={styles.readerText}>
+                    아직 이야기를 만들지 않은 날이에요. 이 날 가방에 담았던 물건들을 보여드릴게요.
+                  </Text>
+                </>
+              )}
               {dayPhotos.length > 0 ? (
                 <View style={styles.readerBagSection}>
-                  <Text style={styles.readerBagTitle}>이 날의 가방</Text>
+                  {story ? <Text style={styles.readerBagTitle}>이 날의 가방</Text> : null}
                   <Text style={styles.readerBagHint}>
                     이 날 찍어서 담은 물건 {dayPhotos.length}개
                   </Text>
@@ -1570,6 +1611,12 @@ export default function BagStackScreen() {
   const [photoNote, setPhotoNote] = useState("");
   const [stories, setStories] = useState<GeneratedStory[]>([]);
   const [readerStory, setReaderStory] = useState<GeneratedStory | null>(null);
+  // 이야기 없이 물건만 담긴 날을 열었을 때 '이 날의 가방'만 보여주기 위한 날짜.
+  const [readerBagDay, setReaderBagDay] = useState<{
+    year: number;
+    month0: number;
+    day: number;
+  } | null>(null);
   const [emptyHint, setEmptyHint] = useState<string | null>(null);
   const now = useMemo(() => new Date(), []);
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
@@ -1578,9 +1625,21 @@ export default function BagStackScreen() {
 
   const dayStoryMap = useMemo(() => buildDayStoryMap(stories), [stories]);
   const storyMonths = useMemo(() => collectStoryMonths(stories), [stories]);
+  // 가방에 담긴 물건들을 담은 날짜('Y-M-D')별로 세어, 이야기가 없는 날도 책장에서 열 수 있게 한다.
+  const dayPhotoCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const photo of photos) {
+      if (!photo.createdAt) continue;
+      const date = new Date(photo.createdAt);
+      if (Number.isNaN(date.getTime())) continue;
+      const dayKey = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+      counts.set(dayKey, (counts.get(dayKey) ?? 0) + 1);
+    }
+    return counts;
+  }, [photos]);
   const shelf = useMemo(
-    () => buildShelfForMonth(selectedYear, selectedMonth - 1, dayStoryMap),
-    [selectedYear, selectedMonth, dayStoryMap],
+    () => buildShelfForMonth(selectedYear, selectedMonth - 1, dayStoryMap, dayPhotoCounts),
+    [selectedYear, selectedMonth, dayStoryMap, dayPhotoCounts],
   );
 
   // 첫 달(2020년 1월)보다 앞이나 이번 달보다 뒤로는 넘어가지 않는다.
@@ -1631,43 +1690,62 @@ export default function BagStackScreen() {
     return () => clearTimeout(timer);
   }, [emptyHint]);
 
-  const handleSelectDay = useCallback((day: ShelfDay) => {
-    if (day.story) {
-      setEmptyHint(null);
-      setReaderStory(day.story);
-    } else {
-      setReaderStory(null);
-      setEmptyHint(`${day.dateLabel} · 아직 이야기가 없어요`);
-    }
-  }, []);
+  const handleSelectDay = useCallback(
+    (day: ShelfDay) => {
+      if (day.story) {
+        setEmptyHint(null);
+        setReaderBagDay(null);
+        setReaderStory(day.story);
+      } else if (day.photoCount > 0) {
+        // 이야기는 아직 없지만 물건을 담은 날이면 '이 날의 가방'만 보여준다.
+        setEmptyHint(null);
+        setReaderStory(null);
+        setReaderBagDay({ year: selectedYear, month0: selectedMonth - 1, day: day.day });
+      } else {
+        setReaderStory(null);
+        setReaderBagDay(null);
+        setEmptyHint(`${day.dateLabel} · 아직 이야기가 없어요`);
+      }
+    },
+    [selectedMonth, selectedYear],
+  );
 
-  // 이야기 날짜와 같은 날 가방에 저장된 사진들.
+  // 리더에 보여줄 날짜. 이야기를 열면 이야기가 만들어진 날, 가방만 담긴 날이면 그 날짜다.
+  const readerDate = useMemo<Date | null>(() => {
+    if (readerStory) {
+      const date = new Date(readerStory.createdAt);
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+    if (readerBagDay) {
+      return new Date(readerBagDay.year, readerBagDay.month0, readerBagDay.day);
+    }
+    return null;
+  }, [readerBagDay, readerStory]);
+
+  // 리더 날짜와 같은 날 가방에 저장된 사진들.
   // 가방에서 지웠거나 샘플 이야기라 실물이 없으면 이야기에 저장된 사진 스냅샷을 대신 쓴다.
   const readerDayPhotos = useMemo<ReaderDayPhoto[]>(() => {
-    if (!readerStory) return [];
-
-    const storyDate = new Date(readerStory.createdAt);
-    if (Number.isNaN(storyDate.getTime())) return [];
+    if (!readerDate) return [];
 
     const sameDayPhotos = photos
       .filter((photo) => {
         if (!photo.createdAt) return false;
         const photoDate = new Date(photo.createdAt);
         return (
-          photoDate.getFullYear() === storyDate.getFullYear() &&
-          photoDate.getMonth() === storyDate.getMonth() &&
-          photoDate.getDate() === storyDate.getDate()
+          photoDate.getFullYear() === readerDate.getFullYear() &&
+          photoDate.getMonth() === readerDate.getMonth() &&
+          photoDate.getDate() === readerDate.getDate()
         );
       })
       .map((photo) => ({ id: photo.id, uri: photo.uri }));
 
-    if (sameDayPhotos.length > 0) return sameDayPhotos;
+    if (sameDayPhotos.length > 0 || !readerStory) return sameDayPhotos;
 
     return (readerStory.imageUrls ?? []).map((uri, index) => ({
       id: `${readerStory.id}-snapshot-${index}`,
       uri,
     }));
-  }, [photos, readerStory]);
+  }, [photos, readerDate, readerStory]);
   const [isBagViewsOpen, setIsBagViewsOpen] = useState(false);
   const [bagViews, setBagViews] = useState<BagView[]>([]);
   const [isLoadingBagViews, setIsLoadingBagViews] = useState(false);
@@ -2346,6 +2424,10 @@ export default function BagStackScreen() {
                 <Text style={styles.legendLabel}>{meta.label}</Text>
               </View>
             ))}
+            <View style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: BAG_ONLY_SPINE_COLOR }]} />
+              <Text style={styles.legendLabel}>가방 기록</Text>
+            </View>
           </View>
 
           {emptyHint ? (
@@ -2410,8 +2492,16 @@ export default function BagStackScreen() {
       />
       <StoryReaderModal
         story={readerStory}
+        bagDayLabel={
+          readerBagDay
+            ? `${readerBagDay.year}년 ${readerBagDay.month0 + 1}월 ${readerBagDay.day}일`
+            : null
+        }
         dayPhotos={readerDayPhotos}
-        onClose={() => setReaderStory(null)}
+        onClose={() => {
+          setReaderStory(null);
+          setReaderBagDay(null);
+        }}
       />
     </View>
   );
