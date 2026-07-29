@@ -10,8 +10,10 @@ torch 버전이 달라(2.5.1+ vs 2.4.1) 별도 프로세스(포트 8010)로 돌�
         --app-dir /workspace/InMyBag/ai-server/sdxl-server --host 127.0.0.1 --port 8010
 
 환경 변수:
-    SDXL_LORA_DIR    LoRA 디렉터리 (기본: 이 폴더의 checkpoints/kido-lora)
-    SDXL_LORA_SCALE  fuse 가중치 (기본 1.0)
+    SDXL_SKETCH_LORA_DIR    kidsketch LoRA 디렉터리 (기본: checkpoints/kidsketch-lora)
+    SDXL_SKETCH_LORA_SCALE  kidsketch(AI Hub 연필화 그림체) 비중 (기본 1.0)
+    SDXL_LORA_DIR           kido LoRA 디렉터리 (기본: checkpoints/kido-lora)
+    SDXL_KIDO_LORA_SCALE    kido(KIDO 컬러 그림) 비중 (기본 0.4, 채색 보조)
 """
 
 import base64
@@ -34,31 +36,48 @@ ROOT_DIR = Path(__file__).resolve().parent
 
 BASE_REPO = "stabilityai/stable-diffusion-xl-base-1.0"
 VAE_FIX_REPO = "madebyollin/sdxl-vae-fp16-fix"
-LORA_SCALE = float(os.environ.get("SDXL_LORA_SCALE", "1.0"))
+
+# 두 LoRA를 섞어 씁니다.
+#   - kidsketch (AI Hub HTP 아동 연필화): 그림체의 주축. 선·형태·아이 손그림 느낌.
+#     흑백 연필화로 학습됐으므로 색은 프롬프트와 kido로 보탭니다.
+#   - kido (KIDO 컬러 아동 그림): 채색을 보태는 보조 어댑터. 약하게 섞습니다.
+# 비율은 환경 변수로 조절합니다 (kidsketch를 더 크게 = AI Hub 그림체가 더 강함).
+SKETCH_LORA_SCALE = float(os.environ.get("SDXL_SKETCH_LORA_SCALE", "1.0"))
+KIDO_LORA_SCALE = float(
+    os.environ.get("SDXL_KIDO_LORA_SCALE", os.environ.get("SDXL_LORA_SCALE", "0.4"))
+)
 
 # LoRA 가중치 위치. 우선순위:
-#   1) SDXL_LORA_DIR 환경 변수
-#   2) 이 폴더의 checkpoints/kido-lora (repo 표준 위치, 가중치는 Drive로 공유)
-#   3) 학습 작업 공간의 원본 출력 (/workspace/sdxl-lora/outputs/kido-lora)
-_LORA_DIR_CANDIDATES = [
+#   1) 환경 변수 (SDXL_SKETCH_LORA_DIR / SDXL_LORA_DIR)
+#   2) 이 폴더의 checkpoints/<이름> (repo 표준 위치, 가중치는 Drive로 공유)
+#   3) 학습 작업 공간의 원본 출력 (/workspace/sdxl-lora/outputs/<이름>)
+_SKETCH_DIR_CANDIDATES = [
+    os.environ.get("SDXL_SKETCH_LORA_DIR"),
+    str(ROOT_DIR / "checkpoints" / "kidsketch-lora"),
+    "/workspace/sdxl-lora/outputs/kidsketch-lora",
+]
+_KIDO_DIR_CANDIDATES = [
     os.environ.get("SDXL_LORA_DIR"),
     str(ROOT_DIR / "checkpoints" / "kido-lora"),
     "/workspace/sdxl-lora/outputs/kido-lora",
 ]
 
 
-def _resolve_lora_dir() -> Path:
-    for candidate in _LORA_DIR_CANDIDATES:
+def _resolve_lora_dir(candidates: list[str | None]) -> Path | None:
+    for candidate in candidates:
         if candidate and (Path(candidate) / "pytorch_lora_weights.safetensors").exists():
             return Path(candidate)
-    # 어디에도 없으면 첫 후보를 그대로 반환해, 로드 단계에서 명확한 에러 메시지를 남긴다.
-    return Path(_LORA_DIR_CANDIDATES[0] or _LORA_DIR_CANDIDATES[1])
+    return None
 
 
-LORA_DIR = _resolve_lora_dir()
+SKETCH_LORA_DIR = _resolve_lora_dir(_SKETCH_DIR_CANDIDATES)
+KIDO_LORA_DIR = _resolve_lora_dir(_KIDO_DIR_CANDIDATES)
 
 # 학습 때 캡션 앞에 붙인 트리거 워드. 프롬프트에 없으면 자동으로 앞에 붙입니다.
-TRIGGER_WORD = "kidodrawing"
+# (kidsketch: AI Hub 연필화 / kidodrawing: KIDO 컬러 그림)
+# 실제로 붙는 목록은 로드에 성공한 어댑터에 따라 startup에서 채워집니다.
+_active_triggers: list[str] = []
+_active_adapters: list[tuple[str, float]] = []
 
 # 아동 크레파스 그림체에서 빼고 싶은 요소들. 요청에서 덮어쓸 수 있습니다.
 DEFAULT_NEGATIVE = "photo, photorealistic, 3d render, text, watermark, signature, blurry"
@@ -83,7 +102,7 @@ class GenerateInput(BaseModel):
 
 
 def _load_pipeline():
-    """SDXL base + fp16-fix VAE + KIDO LoRA 를 한 번만 로드해 재사용합니다."""
+    """SDXL base + fp16-fix VAE + LoRA(kidsketch 주 + kido 보조)를 한 번만 로드해 재사용합니다."""
     global _pipe, _pipe_error
     from diffusers import AutoencoderKL, StableDiffusionXLPipeline
 
@@ -91,9 +110,25 @@ def _load_pipeline():
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA GPU를 찾을 수 없습니다.")
 
-        lora_weights = LORA_DIR / "pytorch_lora_weights.safetensors"
-        if not lora_weights.exists():
-            raise RuntimeError(f"LoRA 가중치가 없습니다: {lora_weights}")
+        # 사용할 어댑터 목록. (이름, 경로, 스케일, 트리거) 순.
+        # kidsketch가 그림체의 주축이므로 앞에 둔다 (트리거 순서에도 반영).
+        adapter_plan = [
+            ("kidsketch", SKETCH_LORA_DIR, SKETCH_LORA_SCALE, "kidsketch"),
+            ("kido", KIDO_LORA_DIR, KIDO_LORA_SCALE, "kidodrawing"),
+        ]
+        available = [
+            (name, path, scale, trigger)
+            for name, path, scale, trigger in adapter_plan
+            if path is not None and scale > 0
+        ]
+        if not available:
+            raise RuntimeError(
+                "LoRA 가중치를 찾을 수 없습니다. checkpoints/kidsketch-lora 또는 "
+                "checkpoints/kido-lora 에 pytorch_lora_weights.safetensors 를 넣어주세요."
+            )
+        for name, path, _, _ in adapter_plan:
+            if path is None:
+                logger.warning("LoRA %s 가중치가 없어 건너뜁니다.", name)
 
         dtype = torch.float16
         logger.info("VAE 로드: %s", VAE_FIX_REPO)
@@ -111,13 +146,28 @@ def _load_pipeline():
         )
         pipe.to("cuda")
 
-        logger.info("LoRA 적용: %s (scale=%s)", LORA_DIR, LORA_SCALE)
-        pipe.load_lora_weights(str(LORA_DIR))
-        pipe.fuse_lora(lora_scale=LORA_SCALE)
-        # fuse 후에는 어댑터 상태가 필요 없으므로 정리해 추론 오버헤드를 없앱니다.
+        for name, path, scale, _ in available:
+            logger.info("LoRA 적용: %s <- %s (scale=%s)", name, path, scale)
+            pipe.load_lora_weights(str(path), adapter_name=name)
+
+        # 두 어댑터를 지정 비율로 활성화한 뒤 fuse해 추론 오버헤드를 없앱니다.
+        pipe.set_adapters(
+            [name for name, _, _, _ in available],
+            adapter_weights=[scale for _, _, scale, _ in available],
+        )
+        pipe.fuse_lora(adapter_names=[name for name, _, _, _ in available])
         pipe.unload_lora_weights()
 
-        logger.info("SDXL + KIDO LoRA 준비 완료 (%.1fs)", time.time() - t0)
+        _active_adapters.clear()
+        _active_adapters.extend((name, scale) for name, _, scale, _ in available)
+        _active_triggers.clear()
+        _active_triggers.extend(trigger for _, _, _, trigger in available)
+
+        logger.info(
+            "SDXL + LoRA 준비 완료 (%.1fs): %s",
+            time.time() - t0,
+            ", ".join(f"{name}={scale}" for name, scale in _active_adapters),
+        )
         _pipe = pipe
         _pipe_error = None
     except Exception as exc:  # noqa: BLE001 - 준비 실패 사유를 /healthy 로 보여주기 위함
@@ -134,7 +184,7 @@ def startup() -> None:
         t0 = time.time()
         with torch.inference_mode():
             _pipe(
-                prompt=f"{TRIGGER_WORD}, a child's drawing of a sun",
+                prompt=f"{', '.join(_active_triggers)}, a child's drawing of a sun",
                 num_inference_steps=4,
                 width=512,
                 height=512,
@@ -147,7 +197,11 @@ def startup() -> None:
 @app.get("/healthy")
 def healthy() -> dict:
     if _pipe is not None:
-        return {"status": "ok", "model": "sdxl-base-1.0 + kido-lora", "loraScale": LORA_SCALE}
+        return {
+            "status": "ok",
+            "model": "sdxl-base-1.0 + " + " + ".join(name for name, _ in _active_adapters),
+            "adapters": {name: scale for name, scale in _active_adapters},
+        }
     return {"status": "error", "detail": _pipe_error or "모델이 아직 로드되지 않았습니다."}
 
 
@@ -158,8 +212,11 @@ def generate(payload: GenerateInput) -> dict:
         raise HTTPException(status_code=503, detail=_pipe_error or "모델이 로드되지 않았습니다.")
 
     prompt = payload.prompt.strip()
-    if payload.addTrigger and TRIGGER_WORD not in prompt.lower():
-        prompt = f"{TRIGGER_WORD}, {prompt}"
+    if payload.addTrigger:
+        # 로드된 어댑터의 트리거 워드 중 빠진 것을 앞에 붙입니다 (kidsketch 우선).
+        missing = [word for word in _active_triggers if word not in prompt.lower()]
+        if missing:
+            prompt = f"{', '.join(missing)}, {prompt}"
 
     # SDXL 은 8의 배수 해상도만 허용합니다.
     width = payload.width - payload.width % 8

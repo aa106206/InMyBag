@@ -1,4 +1,5 @@
 import { LinearGradient } from 'expo-linear-gradient';
+import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -88,7 +89,7 @@ function ObjectRail({ items }: { items: SavedBagItem[] }) {
 const generationSteps = [
   { emoji: '🎒', title: '오늘의 물건을 담는 중', detail: '가방 속 물건들의 이름과 기억을 읽고 있어요.' },
   { emoji: '✍️', title: '당신의 하루를 이야기로 엮는 중', detail: '세 가지 답변을 바탕으로 줄거리를 만들고 있어요.' },
-  { emoji: '🎨', title: '그림일기의 한 장면을 그리는 중', detail: '직접 학습한 KIDO 그림체 AI가 이야기의 한 장면을 그려요.' },
+  { emoji: '🎨', title: '그림일기의 한 장면을 그리는 중', detail: '직접 학습한 아이 그림체 AI가 이야기의 한 장면을 그려요.' },
   { emoji: '✨', title: '마지막 장면을 다듬는 중', detail: '이야기의 여운과 그림의 색감을 맞추고 있어요.' },
 ];
 
@@ -252,13 +253,11 @@ export default function StoryScreen() {
     }
   }, [user]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  // 내 가방에서 물건을 담고 돌아와도 목록이 갱신되도록, 탭에 들어올 때마다 다시 불러온다.
+  useFocusEffect(useCallback(() => { refresh(); }, [refresh]));
 
   const generate = async () => {
-    if (todayItems.length === 0) {
-      Alert.alert('이야기 재료가 필요해요', '먼저 내 가방에서 오늘의 물건을 하나 이상 담아 주세요.');
-      return;
-    }
+    // 물건이 없어도 감정·줄거리만으로 그림일기를 만들 수 있다.
     setGenerating(true);
     try {
       const generatedStory = await generateStoryWithGemini({
@@ -483,7 +482,7 @@ export default function StoryScreen() {
               </View>
             </View>
 
-            <Pressable onPress={generate} disabled={generating || todayItems.length === 0} style={[styles.generateButton, (generating || todayItems.length === 0) && styles.generateButtonDisabled]}>
+            <Pressable onPress={generate} disabled={generating} style={[styles.generateButton, generating && styles.generateButtonDisabled]}>
               {generating ? <ActivityIndicator color="#FFFFFF" /> : <><Text style={styles.generateSpark}>✦</Text><Text style={styles.generateText}>이야기 생성</Text></>}
             </Pressable>
           </View>

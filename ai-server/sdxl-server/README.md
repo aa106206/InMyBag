@@ -1,7 +1,12 @@
-# SDXL KIDO LoRA 이미지 생성 서버
+# SDXL LoRA 이미지 생성 서버
 
 그림일기(`POST /story/generate`)의 일러스트를 그리는 서버입니다.
-AI Hub KIDO 아동 그림 데이터로 파인튜닝한 SDXL LoRA(트리거 워드 `kidodrawing`)를 사용합니다.
+직접 파인튜닝한 SDXL LoRA 두 개를 섞어 씁니다.
+
+- **kidsketch** (트리거 `kidsketch`) — AI Hub HTP 아동 연필화 데이터로 학습. **그림체의 주축**.
+- **kido** (트리거 `kidodrawing`) — KIDO 아동 컬러 그림 데이터로 학습. 채색을 보태는 **보조** (기본 0.4 비율).
+
+kidsketch 원본이 흑백 연필화이므로, 색은 kido 어댑터와 프롬프트('colored pencils')로 입힙니다.
 
 ## 구조
 
@@ -19,8 +24,11 @@ AI Hub KIDO 아동 그림 데이터로 파인튜닝한 SDXL LoRA(트리거 워�
 
 - `sdxl_server.py` — FastAPI 서버 (`/healthy`, `/generate`)
 - `requirements-sdxl.txt` — 의존성 (별도 venv 필수)
-- `checkpoints/kido-lora/pytorch_lora_weights.safetensors` — LoRA 가중치 (약 89MB)
+- `checkpoints/kidsketch-lora/pytorch_lora_weights.safetensors` — kidsketch LoRA 가중치
+- `checkpoints/kido-lora/pytorch_lora_weights.safetensors` — kido LoRA 가중치 (약 89MB)
   - git에는 올라가지 않습니다. SAM2 체크포인트처럼 Google Drive로 공유받아 넣어주세요.
+  - 학습 머신에서는 `/workspace/sdxl-lora/outputs/<이름>` 폴백 경로에서 자동으로 찾습니다.
+  - 한쪽 가중치만 있으면 그 어댑터만으로 동작합니다 (경고 로그 후 계속).
 
 ## 실행
 
@@ -44,8 +52,10 @@ curl http://127.0.0.1:8010/healthy
 
 | 변수 | 기본값 | 설명 |
 |---|---|---|
-| `SDXL_LORA_DIR` | `checkpoints/kido-lora` | LoRA 가중치 폴더 (없으면 `/workspace/sdxl-lora/outputs/kido-lora` 폴백) |
-| `SDXL_LORA_SCALE` | `1.0` | LoRA fuse 가중치 |
+| `SDXL_SKETCH_LORA_DIR` | `checkpoints/kidsketch-lora` | kidsketch LoRA 폴더 |
+| `SDXL_SKETCH_LORA_SCALE` | `1.0` | kidsketch(AI Hub 연필화 그림체) 비중 |
+| `SDXL_LORA_DIR` | `checkpoints/kido-lora` | kido LoRA 폴더 |
+| `SDXL_KIDO_LORA_SCALE` | `0.4` | kido(KIDO 컬러) 비중 — 올리면 색이 진해지고 KIDO 그림체가 강해짐 |
 | `SDXL_WARMUP` | `1` | 시작 시 워밍업 생성 여부 |
 
 CUDA GPU가 없으면 모델 로드에 실패하고 `/healthy` 가 사유를 알려줍니다.

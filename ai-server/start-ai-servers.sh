@@ -4,9 +4,9 @@
 #   bash ai-server/start-ai-servers.sh
 #
 # 뜨는 프로세스:
-#   1) 메인 AI 서버 (0.0.0.0:8000) — SAM2 분리 + Grounding DINO 탐지 +
-#      그림일기(이야기: Gemini, 일러스트: SDXL). venv: ai-server/.venv
-#   2) SDXL KIDO LoRA 생성 서버 (127.0.0.1:8010) — 코드: ai-server/sdxl-server
+#   1) 메인 AI 서버 (0.0.0.0:8000) — 코드: ai-server/server/main.py
+#      SAM2 분리 + Grounding DINO 탐지 + 그림일기. venv: ai-server/.venv
+#   2) SDXL LoRA 생성 서버 (127.0.0.1:8010) — 코드: ai-server/sdxl-server
 #      venv: torch 버전이 달라 별도 (기본 /workspace/sdxl-lora/.venv,
 #      SDXL_PYTHON 환경 변수로 변경 가능)
 #
@@ -24,7 +24,7 @@ LOG_DIR="$AI_DIR/logs"
 RUN_DIR="$LOG_DIR/run"
 mkdir -p "$LOG_DIR" "$RUN_DIR"
 
-MAIN_DIR="$AI_DIR/sam2-server/sam2"
+MAIN_DIR="$AI_DIR/server"
 MAIN_PY="$AI_DIR/.venv/bin/python"
 SDXL_PY="${SDXL_PYTHON:-/workspace/sdxl-lora/.venv/bin/python}"
 
@@ -65,7 +65,7 @@ else
     export HF_HUB_ENABLE_HF_TRANSFER=1
     export TOKENIZERS_PARALLELISM=false
     export SAM2_MODEL="${SAM2_MODEL:-small}"
-    nohup "$MAIN_PY" -m uvicorn sam2_image_server:app \
+    nohup "$MAIN_PY" -m uvicorn main:app \
       --host 0.0.0.0 --port 8000 \
       >> "$LOG_DIR/ai-main.log" 2>&1 &
     echo $! > "$RUN_DIR/ai-main.pid"
@@ -111,4 +111,12 @@ fi
 
 echo
 echo "노트북 앱 설정 (frontend/.env):"
-echo "  EXPO_PUBLIC_SAM2_SERVER_URL=https://<RunPod 포드 ID>-8000.proxy.runpod.net"
+if [[ -n "${RUNPOD_POD_ID:-}" ]]; then
+  echo "  EXPO_PUBLIC_SAM2_SERVER_URL=https://${RUNPOD_POD_ID}-8000.proxy.runpod.net"
+  echo
+  echo "⚠️  포드를 재시작하면 포드 ID(주소)가 바뀔 수 있습니다."
+  echo "   앱에서 AI 기능이 전부 실패하면, 위 주소를 frontend/.env 에 다시 넣고"
+  echo "   노트북에서 npx expo start --clear 로 재시작하세요."
+else
+  echo "  EXPO_PUBLIC_SAM2_SERVER_URL=https://<RunPod 포드 ID>-8000.proxy.runpod.net"
+fi

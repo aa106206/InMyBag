@@ -20,7 +20,9 @@ stop_one "$RUN_DIR/ai-main.pid" "메인 AI 서버(8000)"
 stop_one "$RUN_DIR/ai-sdxl.pid" "SDXL 서버(8010)"
 
 # PID 파일이 유실된 경우를 대비한 뒷정리 (해당 포트의 uvicorn 만 정확히 종료)
-pkill -f "uvicorn sam2_image_server:app.*--port 8000" 2>/dev/null && echo "[정리] 8000 잔여 프로세스 종료"
+# (sam2_image_server 는 server/main.py 로 옮기기 전 이름 — 구버전 잔여 프로세스 대비)
+pkill -f "uvicorn main:app.*--port 8000" 2>/dev/null && echo "[정리] 8000 잔여 프로세스 종료"
+pkill -f "uvicorn sam2_image_server:app.*--port 8000" 2>/dev/null && echo "[정리] 8000 구버전 프로세스 종료"
 pkill -f "uvicorn sdxl_server:app.*--port 8010" 2>/dev/null && echo "[정리] 8010 잔여 프로세스 종료"
 
 # 프로세스가 실제로 죽고 포트가 비워질 때까지 기다립니다.
@@ -33,6 +35,7 @@ wait_port_free() { # port
     waited=$((waited + 1))
     if [[ $waited -ge 15 ]]; then
       echo "[강제] 포트 $port 프로세스가 15초 안에 안 죽어 SIGKILL 합니다."
+      pkill -9 -f "uvicorn main:app.*--port $port" 2>/dev/null
       pkill -9 -f "uvicorn sam2_image_server:app.*--port $port" 2>/dev/null
       pkill -9 -f "uvicorn sdxl_server:app.*--port $port" 2>/dev/null
       sleep 2

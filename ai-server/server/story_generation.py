@@ -1,6 +1,8 @@
-"""SnapBag 그림일기 생성: 이야기는 Gemini, 일러스트는 SDXL KIDO LoRA로 만듭니다.
+"""SnapBag 그림일기 생성: 이야기는 Gemini, 일러스트는 SDXL LoRA로 만듭니다.
 
-일러스트는 파인튜닝한 SDXL KIDO LoRA 서버(기본 127.0.0.1:8010)가 그립니다.
+일러스트는 파인튜닝한 SDXL LoRA 서버(기본 127.0.0.1:8010)가 그립니다.
+그림체는 kidsketch(AI Hub HTP 아동 연필화) LoRA가 주축이고,
+kido(KIDO 컬러 아동 그림) LoRA를 약하게 섞어 채색을 보탭니다.
 SDXL 서버가 꺼져 있거나 실패하면 기존 Gemini 이미지 모델로 자동 폴백해,
 그림일기 기능이 한쪽 장애로 멈추지 않게 합니다.
 """
@@ -23,8 +25,8 @@ logger = logging.getLogger(__name__)
 try:
     from dotenv import load_dotenv
 
-    # parents[2] = ai-server/ (이 파일은 ai-server/sam2-server/sam2/ 에 있다)
-    load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+    # parents[1] = ai-server/ (이 파일은 ai-server/server/ 에 있다)
+    load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 except ImportError:  # pragma: no cover - 선택적 의존성
     pass
 
@@ -39,10 +41,11 @@ IMAGE_MODEL = os.environ.get("GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image")
 MAX_REFERENCE_IMAGES = 4
 MAX_REFERENCE_IMAGE_BYTES = 8 * 1024 * 1024
 
-# 일러스트를 그리는 SDXL KIDO LoRA 서버 (sdxl-server/sdxl_server.py, 별도 프로세스).
+# 일러스트를 그리는 SDXL LoRA 서버 (sdxl-server/sdxl_server.py, 별도 프로세스).
+# kidsketch(AI Hub 연필화, 그림체 주축) + kido(KIDO 컬러, 채색 보조) 두 LoRA를 섞는다.
 # 메인 서버의 /sdxl/* 프록시와 같은 환경 변수를 공유한다.
 SDXL_SERVER_URL = os.environ.get("SDXL_SERVER_URL", "http://127.0.0.1:8010").rstrip("/")
-SDXL_MODEL_NAME = "sdxl-base-1.0 + kido-lora"
+SDXL_MODEL_NAME = "sdxl-base-1.0 + kidsketch-lora + kido-lora"
 # 4090 기준 30 steps ≈ 3초. 그림일기 상단 배치에 맞춘 4:3 가로형(기존 Gemini와 같은 비율).
 SDXL_STORY_STEPS = int(os.environ.get("SDXL_STORY_STEPS", "30"))
 SDXL_STORY_WIDTH = 1024
@@ -86,21 +89,21 @@ EMOTION_PROMPT_EN = {
 }
 
 # 모든 SDXL 프롬프트 끝에 붙는 그림체 지시.
-# '어린아이 그림'이되 무엇을 그렸는지 한눈에 알아볼 수 있어야 하므로,
-# 또렷한 외곽선/단순한 형태/깔끔한 구도를 명시해 낙서 같은 결과를 줄인다.
-# 흑백 연필 스케치처럼 나오는 것을 막기 위해 '크레파스로 꽉 칠한 색'을 강하게 요구한다.
+# 그림체의 주축은 kidsketch(AI Hub 아동 연필화) LoRA다. 다만 원본 데이터가 흑백이므로,
+# '색연필로 꽉 칠한 색'을 강하게 요구해 연필 그림체를 유지하면서 컬러로 나오게 한다.
+# 무엇을 그렸는지 한눈에 알아볼 수 있도록 또렷한 선/단순한 형태/깔끔한 구도도 명시한다.
 SDXL_STYLE_SUFFIX = (
-    "cute simple children's crayon drawing, fully colored in with bright crayons, "
-    "vivid colorful colors everywhere, clear bold outlines, "
-    "simple recognizable shapes, clean composition"
+    "cute simple children's pencil drawing on white paper, "
+    "fully colored in with bright colored pencils, vivid colorful colors everywhere, "
+    "clear outlines, simple recognizable shapes, clean composition"
 )
 
 # 그림일기 일러스트 전용 네거티브 프롬프트.
-# sdxl_server.py 의 기본값에 '어지러운 낙서/추상/알아볼 수 없는 형태'와
-# '흑백/연필 스케치/색 안 칠한 선 그림'을 추가로 막는다.
+# sdxl_server.py 의 기본값에 '어지러운 낙서/추상/알아볼 수 없는 형태'를 추가로 막는다.
+# 연필 그림체 자체는 원하는 스타일이므로 막지 않되,
+# 색을 안 칠한 흑백/회색 결과만 강하게 차단한다.
 SDXL_STORY_NEGATIVE = (
-    "black and white, monochrome, grayscale, pencil sketch, uncolored, "
-    "line art only, pale washed-out colors, "
+    "black and white, monochrome, grayscale, uncolored, pale washed-out colors, "
     "photo, photorealistic, 3d render, text, watermark, signature, blurry, "
     "messy scribbles, chaotic lines, abstract, unrecognizable shapes, "
     "distorted, deformed, cluttered background"
@@ -172,7 +175,10 @@ def _generate_story(payload: dict[str, Any]) -> dict[str, str]:
     daily_moment = str(payload.get("dailyMoment") or "").strip()
     creativity = int(payload.get("creativity") or 5)
     creativity_ratio = (creativity - 1) / 8
-    object_context = _object_context(objects)
+    # 물건이 없으면 물건 언급 규칙 대신 '없이 써 달라'는 안내로 대체한다.
+    object_context = _object_context(objects) or (
+        "(오늘 기록한 물건 없음 - 물건 언급 없이 오늘 있었던 일과 기분만으로 써 줘)"
+    )
     emotion_guide = _emotion_guide(payload)
 
     prompt = f"""
@@ -252,20 +258,21 @@ def _generate_story(payload: dict[str, Any]) -> dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# SDXL KIDO LoRA 일러스트
+# SDXL LoRA 일러스트 (kidsketch 주 + kido 보조)
 #
-# KIDO LoRA는 영어 캡션(트리거 워드 kidodrawing)으로 학습했으므로,
+# 두 LoRA 모두 영어 캡션(트리거 워드 kidsketch / kidodrawing)으로 학습했으므로,
 # 한국어 이야기를 그대로 보내면 장면을 이해하지 못한다.
 # 그래서 이미 사용 중인 Gemini 텍스트 모델로 이야기를 짧은 영어 장면 묘사로
 # 요약해 SDXL 프롬프트로 쓰고, 이 요약마저 실패하면 감정 기반 기본 프롬프트로
 # 대체해 일러스트 생성이 끊기지 않게 한다.
+# (트리거 워드는 sdxl_server.py 가 자동으로 앞에 붙인다.)
 # ---------------------------------------------------------------------------
 
 def _fallback_sdxl_prompt(payload: dict[str, Any]) -> str:
     """Gemini 요약이 실패했을 때 쓰는 안전한 기본 영어 프롬프트."""
     mood = EMOTION_PROMPT_EN[_resolve_emotion(payload)]
     return (
-        f"a child's crayon drawing of a {mood} moment of everyday life, "
+        f"a child's drawing of a {mood} moment of everyday life, "
         "one child with their favorite belongings, simple shapes, colorful"
     )
 
@@ -291,7 +298,7 @@ def _build_sdxl_prompt(payload: dict[str, Any], story: dict[str, str]) -> str:
     mood = EMOTION_PROMPT_EN[_resolve_emotion(payload)]
 
     prompt = f"""
-You write short English prompts for a text-to-image model that draws in a child's crayon-drawing style.
+You write short English prompts for a text-to-image model that draws in a child's colored-pencil-drawing style.
 
 Turn the user's day below into ONE drawable scene description in English.
 
@@ -300,7 +307,7 @@ What the user wrote about today (the most important source — draw this moment)
 
 Story title: {story['title']}
 Story: {story['body']}
-Objects the user carried today (Korean names): {', '.join(labels)}
+Objects the user carried today (Korean names): {', '.join(labels) or '(none - draw only the child and the scene)'}
 Today's mood: {mood}
 Imagination level: {creativity} of 9 (1 = draw the day exactly as the user wrote it, a realistic everyday scene; 9 = add playful fantasy such as talking objects or magical places)
 
@@ -422,12 +429,12 @@ def _generate_illustration(
 오늘의 기분: {emotion_guide}
 이야기 제목: {story['title']}
 이야기: {story['body']}
-오늘 함께한 물건: {', '.join(labels)}
+오늘 함께한 물건: {', '.join(labels) or '(없음 - 물건 없이 주인공과 장면만 그려 줘)'}
 상상력: 9단계 중 {creativity}단계 (1이면 쓴 그대로의 일상 장면, 9면 물건이 말하고 세계가 변하는 판타지)
 
 스타일 가이드:
-- 어린아이가 크레파스로 그린 그림처럼 표현해. 선은 굵고 또렷하게, 형태는 단순하게.
-- 반드시 알록달록한 크레파스 색으로 꽉 채워 칠해. 흑백, 연필 스케치, 색을 안 칠한 선 그림은 절대 안 돼.
+- 어린아이가 연필로 그리고 색연필로 칠한 그림처럼 표현해. 선은 또렷하게, 형태는 단순하게.
+- 반드시 알록달록한 색연필 색으로 꽉 채워 칠해. 흑백이나 색을 안 칠한 선 그림은 절대 안 돼.
 - 무엇을 그렸는지 한눈에 알아볼 수 있어야 해. 어지러운 낙서나 추상적인 표현은 절대 쓰지 마.
 - 일기의 주인공인 어린이 한 명이 반드시 그림에 등장해서, 일기에 쓴 일을 하고 있어야 해.
 - 하나의 분명한 순간만 그려. 장소 하나, 주인공 어린이 한 명, 그리고 어울리는 물건 몇 개.

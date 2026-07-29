@@ -25,16 +25,16 @@ InMyBag/
 │  ├─ start-ai-servers.sh          ★ 서버 일괄 시작 (이것만 실행하면 됨)
 │  ├─ stop-ai-servers.sh           서버 일괄 중지
 │  ├─ smoke-test.sh                데모 전 전체 엔드포인트 점검
-│  ├─ sam2-server/
-│  │  └─ sam2/
-│  │     ├─ sam2_image_server.py   메인 AI 서버 (포트 8000)
-│  │     ├─ story_generation.py    그림일기 생성 (이야기: Gemini / 일러스트: SDXL)
-│  │     ├─ checkpoints/           SAM2 모델 파일 위치 (Drive로 공유)
-│  │     └─ sam2/                  SAM2 패키지 코드
-│  ├─ sdxl-server/                 SDXL KIDO LoRA 일러스트 서버 (포트 8010, 별도 venv)
+│  ├─ server/                      ★ 메인 AI 서버 코드 (포트 8000)
+│  │  ├─ main.py                   FastAPI 앱: /detect /segment /story/generate /sdxl/*
+│  │  ├─ detection.py              물건 후보 탐지 (Gemini + Grounding DINO)
+│  │  ├─ story_generation.py       그림일기 생성 (이야기: Gemini / 일러스트: SDXL)
+│  │  └─ test-images/              단독 테스트용 이미지
+│  ├─ sdxl-server/                 SDXL LoRA 일러스트 서버 (포트 8010, 별도 venv)
 │  │  ├─ sdxl_server.py
-│  │  └─ checkpoints/kido-lora/    파인튜닝한 LoRA 가중치 (Drive로 공유)
-│  ├─ grounding-dino/              Gemini + Grounding DINO bbox 탐지 코드
+│  │  └─ checkpoints/              파인튜닝한 LoRA 가중치 (Drive로 공유)
+│  ├─ sam2-server/                 SAM2 라이브러리 원본 (수정할 일 없음)
+│  │  └─ sam2/checkpoints/         SAM2 모델 파일 위치 (Drive로 공유)
 │  ├─ requirements.txt             메인 AI 서버 의존성
 │  └─ .env                         AI 서버 환경변수 (GEMINI_API_KEY)
 │
@@ -131,8 +131,8 @@ tail -50 ai-server/logs/ai-sdxl.log   # SDXL 서버 로그
 수동 실행(메인 서버만):
 
 ```bash
-cd ai-server/sam2-server/sam2
-../../.venv/bin/python -m uvicorn sam2_image_server:app --host 0.0.0.0 --port 8000
+cd ai-server/server
+../.venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
 ## 6. 앱(frontend) 실행

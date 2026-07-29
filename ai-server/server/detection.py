@@ -1,3 +1,10 @@
+"""물건 후보 탐지: Gemini가 물건 이름을 뽑고, Grounding DINO가 bbox 좌표를 찾습니다.
+
+main.py 의 POST /detect 가 detect_image_bytes() 를 호출합니다.
+파일 하단의 main() 은 서버 없이 단독 테스트할 때 쓰는 CLI 입니다
+(test-images/test2.jpeg 탐지 -> test-images/result.jpg 저장).
+"""
+
 import base64
 import json
 import mimetypes
@@ -6,6 +13,7 @@ import re
 import time
 from functools import lru_cache
 from io import BytesIO
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -14,8 +22,9 @@ from PIL import Image, ImageDraw, ImageFont
 from transformers import AutoModelForZeroShotObjectDetection, AutoProcessor
 
 
-IMAGE_PATH = "test2.jpeg"
-OUTPUT_PATH = "result.jpg"
+_TEST_IMAGE_DIR = Path(__file__).resolve().parent / "test-images"
+IMAGE_PATH = str(_TEST_IMAGE_DIR / "test2.jpeg")
+OUTPUT_PATH = str(_TEST_IMAGE_DIR / "result.jpg")
 GEMINI_MODEL = "gemini-2.5-flash"
 # 촬영 후 응답 속도를 위해 기본은 tiny를 사용한다.
 # 탐지 품질을 더 올리고 싶으면 서버 실행 전에

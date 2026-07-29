@@ -1,6 +1,16 @@
+"""InMyBag 메인 AI 서버 (포트 8000).
+
+앱이 호출하는 엔드포인트 4개를 모두 여기서 처리합니다.
+  POST /detect          물건 후보 탐지 (detection.py — Gemini + Grounding DINO)
+  POST /segment         물건 분리·스티커 컷아웃 (SAM2)
+  POST /story/generate  그림일기 (story_generation.py — 이야기: Gemini / 일러스트: SDXL)
+  POST /sdxl/generate   SDXL 서버(8010) 프록시
+
+실행: bash ai-server/start-ai-servers.sh
+"""
+
 import base64
 import hashlib
-import importlib.util
 import io
 import logging
 import os
@@ -18,17 +28,18 @@ from PIL import Image, ImageFilter
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
+import detection
 from sam2.build_sam import build_sam2
 from sam2.sam2_image_predictor import SAM2ImagePredictor
 from story_generation import generate_story_diary
 
 logger = logging.getLogger(__name__)
 
-# 이 파일이 있는 sam2 폴더를 기준으로 체크포인트 파일을 찾습니다.
+# 이 파일이 있는 server/ 폴더와 ai-server/ 루트.
 APP_ROOT = Path(__file__).resolve().parent
-# ai-server/ 루트 (= ai-server/sam2-server/sam2 의 두 단계 위)
-AI_SERVER_ROOT = APP_ROOT.parents[1]
-DINO_PATH = AI_SERVER_ROOT / "grounding-dino" / "dino.py"
+AI_SERVER_ROOT = APP_ROOT.parent
+# SAM2 체크포인트는 라이브러리 폴더(sam2-server) 쪽에 둡니다 (Drive 공유 경로 그대로).
+SAM2_CHECKPOINT_DIR = AI_SERVER_ROOT / "sam2-server" / "sam2" / "checkpoints"
 
 # 너무 큰 이미지는 추론 시간이 길어지므로 긴 변을 1024px로 줄여서 처리합니다.
 MAX_IMAGE_SIZE = 1024
@@ -65,29 +76,15 @@ class StoryGenerateInput(BaseModel):
     # mood는 톤 선택 질문이 있던 구버전 앱과의 호환용이다. emotion이 없을 때만 쓰인다.
     mood: Literal["warm", "adventure", "comedy", "mystery"] | None = None
     creativity: int = Field(default=5, ge=1, le=9)
-    objects: list[StoryObjectInput] = Field(min_length=1, max_length=10)
-
-
-@lru_cache(maxsize=1)
-def get_dino_module():
-    """ai-server/grounding-dino 폴더의 dino.py를 동적으로 로딩합니다."""
-    if not DINO_PATH.exists():
-        raise RuntimeError(f"Grounding DINO script not found: {DINO_PATH}")
-
-    spec = importlib.util.spec_from_file_location("inmybag_grounding_dino", DINO_PATH)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Failed to load Grounding DINO script: {DINO_PATH}")
-
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    # 물건 없이(빈 목록) 감정·줄거리만으로도 그림일기를 만들 수 있다.
+    objects: list[StoryObjectInput] = Field(default_factory=list, max_length=10)
 
 
 # 크기별 SAM2 체크포인트와 설정. small이 large보다 수 배 빠르고 컷아웃 품질 차이는 크지 않아
 # 촬영 응답 속도를 위해 small을 기본으로 씁니다. SAM2_MODEL=large 로 되돌릴 수 있습니다.
 SAM2_MODEL_VARIANTS = {
-    "small": ("checkpoints/sam2.1_hiera_small.pt", "configs/sam2.1/sam2.1_hiera_s.yaml"),
-    "large": ("checkpoints/sam2.1_hiera_large.pt", "configs/sam2.1/sam2.1_hiera_l.yaml"),
+    "small": ("sam2.1_hiera_small.pt", "configs/sam2.1/sam2.1_hiera_s.yaml"),
+    "large": ("sam2.1_hiera_large.pt", "configs/sam2.1/sam2.1_hiera_l.yaml"),
 }
 
 
@@ -103,8 +100,8 @@ def get_predictor() -> SAM2ImagePredictor:
     checkpoint = None
     model_cfg = None
     for name in order:
-        ckpt_rel, cfg = SAM2_MODEL_VARIANTS[name]
-        candidate = APP_ROOT / ckpt_rel
+        ckpt_name, cfg = SAM2_MODEL_VARIANTS[name]
+        candidate = SAM2_CHECKPOINT_DIR / ckpt_name
         if candidate.exists():
             if name != preferred:
                 logger.warning("SAM2 %s checkpoint not found. Falling back to %s.", preferred, name)
@@ -115,7 +112,7 @@ def get_predictor() -> SAM2ImagePredictor:
 
     if checkpoint is None or model_cfg is None:
         raise RuntimeError(
-            f"SAM2 checkpoint not found in {APP_ROOT / 'checkpoints'}"
+            f"SAM2 checkpoint not found in {SAM2_CHECKPOINT_DIR}"
         )
 
     # Mac Apple Silicon은 mps, NVIDIA GPU는 cuda, 그 외 환경은 cpu를 사용합니다.
@@ -463,8 +460,7 @@ async def warmup_models() -> None:
         except Exception:
             logger.exception("Warmup: SAM2 load failed (will retry on first request)")
         try:
-            dino = get_dino_module()
-            dino.get_grounding_dino()
+            detection.get_grounding_dino()
             logger.info("Warmup: Grounding DINO ready")
         except Exception:
             logger.exception("Warmup: Grounding DINO load failed (will retry on first request)")
@@ -487,8 +483,7 @@ async def detect(request: Request) -> dict[str, Any]:
 
     try:
         content_type = request.headers.get("content-type") or "image/jpeg"
-        dino = get_dino_module()
-        result = dino.detect_image_bytes(image_bytes, mime_type=content_type)
+        result = detection.detect_image_bytes(image_bytes, mime_type=content_type)
         logger.info("detect timings(ms): %s", result.get("timingsMs"))
         return result
     except Exception as exc:
