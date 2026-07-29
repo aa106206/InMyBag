@@ -15,6 +15,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Brand } from '@/constants/theme';
+import { useAppTheme } from '@/hooks/use-app-theme';
 import { useAuth } from '@/hooks/use-auth';
 import {
   fetchFriends,
@@ -42,6 +43,7 @@ function AvatarCircle({ name, avatarUrl }: { name: string; avatarUrl: string | n
 
 export default function FriendManagementScreen() {
   const insets = useSafeAreaInsets();
+  const { warmBackground } = useAppTheme();
   const { user } = useAuth();
   const userId = user?.id ?? null;
 
@@ -210,7 +212,7 @@ export default function FriendManagementScreen() {
   return (
     <>
       <Stack.Screen options={{ title: '친구 관리' }} />
-      <View style={styles.screen}>
+      <View style={[styles.screen, { backgroundColor: warmBackground }]}>
         {isLoading ? (
           <View style={styles.loadingWrap}>
             <ActivityIndicator color={Brand.primary} size="large" />

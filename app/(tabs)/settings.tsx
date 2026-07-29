@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Brand } from '@/constants/theme';
+import { useAppTheme } from '@/hooks/use-app-theme';
 import { useAuth } from '@/hooks/use-auth';
 import {
   getProfileAvatarErrorMessage,
@@ -139,6 +140,7 @@ function SettingsGroup({
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
+  const { warmBackground } = useAppTheme();
   const { signOut, updateEmail, updatePassword, user } = useAuth();
   const displayName = user?.email ?? 'SnapBag User';
   const [profileImageUri, setProfileImageUri] = useState<string | number>(defaultProfileImage);
@@ -601,7 +603,7 @@ export default function SettingsScreen() {
         </View>
       </Modal>
       <ScrollView
-        style={styles.screen}
+        style={[styles.screen, { backgroundColor: warmBackground }]}
         contentContainerStyle={[
           styles.content,
           {
