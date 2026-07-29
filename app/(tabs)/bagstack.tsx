@@ -30,6 +30,7 @@ import { PhotoLocationMap } from "@/components/photo-location-map";
 import { IconSymbol } from "@/components/ui/icon-symbol";
 import { BAG_STACK_TAB_RESELECT_EVENT } from "@/constants/tab-events";
 import { Brand } from "@/constants/theme";
+import { BAG_THEME_COLORS, useAppTheme } from "@/hooks/use-app-theme";
 import { useAuth } from "@/hooks/use-auth";
 import {
   deleteBagItem,
@@ -1602,6 +1603,7 @@ function StoryReaderModal({
 
 export default function BagStackScreen() {
   const insets = useSafeAreaInsets();
+  const { warmBackground, setWarmBackground } = useAppTheme();
   const { user } = useAuth();
   const engineRef = useRef(Engine.create({ gravity: { x: 0, y: 0, scale: 0.002 } }));
   const wallsRef = useRef<Matter.Body[]>([]);
@@ -1767,6 +1769,12 @@ export default function BagStackScreen() {
   const [isBagViewsOpen, setIsBagViewsOpen] = useState(false);
   const [bagViews, setBagViews] = useState<BagView[]>([]);
   const [isLoadingBagViews, setIsLoadingBagViews] = useState(false);
+  const [isThemePickerOpen, setIsThemePickerOpen] = useState(false);
+
+  const applyThemeBackground = useCallback((color: string) => {
+    setWarmBackground(color);
+    setIsThemePickerOpen(false);
+  }, [setWarmBackground]);
 
   const syncWalls = useCallback((width: number, height: number) => {
     if (width <= 0 || height <= 0) {
@@ -2321,7 +2329,7 @@ export default function BagStackScreen() {
     detectionBoxes.find((box) => box.id === selectedDetectionId)?.label ?? null;
 
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, { backgroundColor: warmBackground }]}>
       <BagPhotoInfoModal
         photo={selectedPhoto}
         onClose={() => setSelectedPhoto(null)}
@@ -2366,6 +2374,39 @@ export default function BagStackScreen() {
           resizeMode="contain"
         />
         <Pressable
+          style={[styles.viewsBadgeButton, styles.topThemeButton, { top: insets.top + 9 }]}
+          onPress={() => setIsThemePickerOpen((current) => !current)}
+          hitSlop={8}
+        >
+          <Text style={styles.viewsBadgeText}>테마</Text>
+        </Pressable>
+        {isThemePickerOpen ? (
+          <View style={[styles.themePopover, { top: insets.top + 42 }]}>
+            <View style={styles.themePopoverTail} />
+            <View style={styles.themeSwatchRow}>
+              {BAG_THEME_COLORS.map((color) => {
+                const selected = color.toLowerCase() === warmBackground.toLowerCase();
+                return (
+                  <Pressable
+                    key={color}
+                    style={[
+                      styles.themeSwatchButton,
+                      selected && styles.themeSwatchButtonSelected,
+                    ]}
+                    onPress={() => {
+                      applyThemeBackground(color);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`테마 색상 ${color}`}
+                  >
+                    <View style={[styles.themeSwatch, { backgroundColor: color }]} />
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        ) : null}
+        <Pressable
           style={[styles.viewsBadgeButton, styles.topViewsButton, { top: insets.top + 9 }]}
           onPress={openBagViews}
           hitSlop={8}
@@ -2397,7 +2438,7 @@ export default function BagStackScreen() {
       </View>
 
       {showHistory ? (
-        <View style={styles.shelfWrap}>
+        <View style={[styles.shelfWrap, { backgroundColor: warmBackground }]}>
           <View style={styles.periodBar}>
             <Pressable
               style={[styles.periodArrow, !canGoPrevMonth && styles.arrowDisabled]}
@@ -2407,7 +2448,7 @@ export default function BagStackScreen() {
               accessibilityRole="button"
               accessibilityLabel="이전 달 보기"
             >
-              <Text style={styles.periodArrowText}>‹</Text>
+              <IconSymbol name="chevron.left" size={34} color={Brand.text} />
             </Pressable>
 
             <Pressable
@@ -2428,7 +2469,7 @@ export default function BagStackScreen() {
               accessibilityRole="button"
               accessibilityLabel="다음 달 보기"
             >
-              <Text style={styles.periodArrowText}>›</Text>
+              <IconSymbol name="chevron.right" size={34} color={Brand.text} />
             </Pressable>
           </View>
 
@@ -2461,7 +2502,7 @@ export default function BagStackScreen() {
         </View>
       ) : (
         <>
-          <View style={styles.canvas} onLayout={onCanvasLayout}>
+        <View style={[styles.canvas, { backgroundColor: warmBackground }]} onLayout={onCanvasLayout}>
             {photos.length === 0 && !isLoadingSavedItems ? (
               <View style={styles.emptyState}>
                 <Text style={styles.emptyTitle}>첫 번째 물건을 담아보세요</Text>
@@ -2745,6 +2786,62 @@ const styles = StyleSheet.create({
   topViewsButton: {
     position: "absolute",
     right: H_PADDING,
+  },
+  topThemeButton: {
+    position: "absolute",
+    left: H_PADDING,
+  },
+  themePopover: {
+    position: "absolute",
+    left: H_PADDING,
+    zIndex: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 18,
+    backgroundColor: Brand.surface,
+    borderWidth: 1,
+    borderColor: Brand.borderSoft,
+    shadowColor: Brand.text,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 10,
+  },
+  themePopoverTail: {
+    position: "absolute",
+    top: -6,
+    left: 22,
+    width: 12,
+    height: 12,
+    transform: [{ rotate: "45deg" }],
+    backgroundColor: Brand.surface,
+    borderLeftWidth: 1,
+    borderTopWidth: 1,
+    borderColor: Brand.borderSoft,
+  },
+  themeSwatchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  themeSwatchButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "transparent",
+  },
+  themeSwatchButtonSelected: {
+    borderColor: Brand.text,
+  },
+  themeSwatch: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: "rgba(17, 24, 39, 0.14)",
   },
   bagModeTabs: {
     flexDirection: "row",
@@ -3317,14 +3414,10 @@ const styles = StyleSheet.create({
     paddingTop: 10,
   },
   periodArrow: {
-    width: 38,
+    width: 34,
     height: 38,
-    borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: Brand.surface,
-    borderWidth: 1,
-    borderColor: Brand.border,
   },
   periodArrowText: {
     color: Brand.text,

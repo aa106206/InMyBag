@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PhotoLocationMap } from '@/components/photo-location-map';
 import { Brand } from '@/constants/theme';
+import { useAppTheme } from '@/hooks/use-app-theme';
 import { useAuth } from '@/hooks/use-auth';
 import { loadFriendBagItems, SavedBagItem } from '@/services/bag-items';
 import { recordBagView } from '@/services/bag-views';
@@ -520,6 +521,7 @@ function FriendBagPage({
   isLoading: boolean;
   onOpenPhotoInfo: (info: SelectedPhotoInfo) => void;
 }) {
+  const { warmBackground } = useAppTheme();
   const engineRef = useRef(Engine.create({ gravity: { x: 0, y: 0, scale: 0.002 } }));
   const wallsRef = useRef<Matter.Body[]>([]);
   const worldSizeRef = useRef({ width: 0, height: 0 });
@@ -682,8 +684,8 @@ function FriendBagPage({
           </Text>
         </View>
       </View>
-      <View style={styles.bagPanelBody}>
-        <View style={styles.canvas} onLayout={onCanvasLayout}>
+      <View style={[styles.bagPanelBody, { backgroundColor: warmBackground }]}>
+        <View style={[styles.canvas, { backgroundColor: warmBackground }]} onLayout={onCanvasLayout}>
           {isLoading ? (
             <View style={styles.canvasCenter}>
               <ActivityIndicator color={Brand.primary} size="large" />
@@ -716,6 +718,7 @@ function FriendBagPage({
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
+  const { warmBackground } = useAppTheme();
   const { user } = useAuth();
   const userId = user?.id ?? null;
   const bagItemsLoadIdRef = useRef(0);
@@ -828,7 +831,7 @@ export default function HomeScreen() {
   const selectedFriend = friends.find((friend) => friend.id === selectedFriendId) ?? null;
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: warmBackground }]}>
       <PhotoInfoModal
         selectedPhoto={selectedPhotoInfo}
         onClose={() => setSelectedPhotoInfo(null)}

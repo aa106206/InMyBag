@@ -17,6 +17,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Brand } from '@/constants/theme';
+import { useAppTheme } from '@/hooks/use-app-theme';
 import { useAuth } from '@/hooks/use-auth';
 import { loadCurrentBagItems, type SavedBagItem } from '@/services/bag-items';
 import {
@@ -213,6 +214,7 @@ function StoryCard({ story, compact = false }: { story: GeneratedStory; compact?
 
 export default function StoryScreen() {
   const insets = useSafeAreaInsets();
+  const { warmBackground } = useAppTheme();
   const scrollRef = useRef<ScrollView>(null);
   const { user } = useAuth();
   const [items, setItems] = useState<SavedBagItem[]>([]);
@@ -305,7 +307,7 @@ export default function StoryScreen() {
   };
 
   if (loading && items.length === 0) {
-    return <View style={styles.loadingScreen}><ActivityIndicator color={Brand.text} /></View>;
+    return <View style={[styles.loadingScreen, { backgroundColor: warmBackground }]}><ActivityIndicator color={Brand.text} /></View>;
   }
 
   return (
@@ -313,7 +315,7 @@ export default function StoryScreen() {
       <StoryGenerationModal visible={generating} items={todayItems} />
       <ScrollView
         ref={scrollRef}
-        style={styles.screen}
+        style={[styles.screen, { backgroundColor: warmBackground }]}
         contentContainerStyle={{ paddingTop: insets.top + 18, paddingBottom: insets.bottom + 110 }}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} tintColor={Brand.text} />}
@@ -506,7 +508,7 @@ export default function StoryScreen() {
       </ScrollView>
 
       <Modal visible={historyOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setHistoryOpen(false)}>
-        <View style={[styles.historyScreen, { paddingTop: insets.top + 12 }]}>
+        <View style={[styles.historyScreen, { paddingTop: insets.top + 12, backgroundColor: warmBackground }]}>
           <View style={styles.historyHeader}>
             <View><Text style={styles.historyTitle}>나의 이야기책</Text><Text style={styles.historySubtitle}>저장한 이야기 {savedStories.length}편</Text></View>
             <Pressable onPress={() => setHistoryOpen(false)} style={styles.closeButton}><Text style={styles.closeText}>×</Text></Pressable>

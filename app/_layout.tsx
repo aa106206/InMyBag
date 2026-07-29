@@ -5,6 +5,7 @@ import 'react-native-reanimated';
 
 import { LoginScreen } from '@/components/login-screen';
 import { Brand } from '@/constants/theme';
+import { AppThemeProvider, useAppTheme } from '@/hooks/use-app-theme';
 import { AuthProvider, useAuth } from '@/hooks/use-auth';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
@@ -14,6 +15,7 @@ export const unstable_settings = {
 
 function RootNavigator() {
   const colorScheme = useColorScheme();
+  const { warmBackground } = useAppTheme();
   const { initializing, session, signIn, signUp } = useAuth();
   const navigationTheme = colorScheme === 'dark' ? DarkTheme : DefaultTheme;
   const brandedTheme = {
@@ -21,9 +23,9 @@ function RootNavigator() {
     colors: {
       ...navigationTheme.colors,
       primary: Brand.primary,
-      background: colorScheme === 'dark' ? Brand.text : Brand.secondary,
+      background: colorScheme === 'dark' ? Brand.text : warmBackground,
       card: colorScheme === 'dark' ? Brand.text : Brand.surface,
-      text: colorScheme === 'dark' ? Brand.secondary : Brand.text,
+      text: colorScheme === 'dark' ? warmBackground : Brand.text,
       border: colorScheme === 'dark' ? Brand.muted : Brand.border,
     },
   };
@@ -54,8 +56,10 @@ function RootNavigator() {
 
 export default function RootLayout() {
   return (
-    <AuthProvider>
-      <RootNavigator />
-    </AuthProvider>
+    <AppThemeProvider>
+      <AuthProvider>
+        <RootNavigator />
+      </AuthProvider>
+    </AppThemeProvider>
   );
 }
