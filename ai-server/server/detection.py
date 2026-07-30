@@ -224,7 +224,8 @@ def build_display_label_map(candidates):
     for candidate in candidates:
         dino_label = str(candidate.get("dino_label_en", "")).strip().lower()
         generic_label = str(candidate.get("generic_label_ko", "")).strip()
-        fallback_label = generic_label or dino_label
+        specific_label = str(candidate.get("specific_label_ko", "")).strip()
+        fallback_label = specific_label or generic_label or dino_label
 
         if dino_label:
             label_map[dino_label] = fallback_label
@@ -232,7 +233,7 @@ def build_display_label_map(candidates):
         for alias in candidate.get("aliases_en", []):
             alias = str(alias).strip().lower()
             if alias:
-                label_map[alias] = generic_label or alias
+                label_map[alias] = fallback_label or alias
 
     return label_map
 

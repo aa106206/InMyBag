@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PhotoLocationMap } from '@/components/photo-location-map';
 import { Brand } from '@/constants/theme';
+import { useAppTheme } from '@/hooks/use-app-theme';
 import { useAuth } from '@/hooks/use-auth';
 import { loadFriendBagItems, SavedBagItem } from '@/services/bag-items';
 import { ExploreOwner, fetchExploreBagOwners } from '@/services/explore';
@@ -302,7 +303,7 @@ function PhysicsPhoto({
         clearLongPressTimer();
         longPressTimerRef.current = setTimeout(() => {
           onOpenPhotoInfoRef.current(photo);
-        }, 1000);
+        }, 500);
         scheduleDragFallback();
         dragStartRef.current = { x: body.position.x, y: body.position.y };
         Body.setStatic(body, true);
@@ -459,6 +460,7 @@ function OwnerAvatar({ owner, size }: { owner: ExploreOwner; size: number }) {
 }
 
 function ExploreSidePreview({ owner, cardWidth }: { owner: ExploreOwner | null; cardWidth: number }) {
+  const { warmBackground } = useAppTheme();
   const ownerHandle = owner ? getDisplayHandle(owner) : 'snapbag';
 
   return (
@@ -472,7 +474,7 @@ function ExploreSidePreview({ owner, cardWidth }: { owner: ExploreOwner | null; 
           <Text style={styles.sidePreviewSub}>오늘의 가방</Text>
         </View>
       </View>
-      <View style={styles.sidePreviewBody} />
+      <View style={[styles.sidePreviewBody, { backgroundColor: warmBackground }]} />
     </View>
   );
 }
@@ -492,6 +494,7 @@ function ExploreBagCanvas({
   onOpenPhotoInfo: (info: SelectedPhotoInfo) => void;
   onDragActiveChange: (active: boolean) => void;
 }) {
+  const { warmBackground } = useAppTheme();
   const engineRef = useRef(Engine.create({ gravity: { x: 0, y: 0, scale: 0.002 } }));
   const wallsRef = useRef<Matter.Body[]>([]);
   const worldSizeRef = useRef({ width: 0, height: 0 });
@@ -654,8 +657,8 @@ function ExploreBagCanvas({
           </Text>
         </View>
       </View>
-      <View style={styles.bagPanelBody}>
-        <View style={styles.canvas} onLayout={onCanvasLayout}>
+      <View style={[styles.bagPanelBody, { backgroundColor: warmBackground }]}>
+        <View style={[styles.canvas, { backgroundColor: warmBackground }]} onLayout={onCanvasLayout}>
           {isLoading ? (
             <View style={styles.canvasCenter}>
               <ActivityIndicator color={Brand.primary} size="large" />

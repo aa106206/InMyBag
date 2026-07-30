@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Brand } from '@/constants/theme';
+import { useAppTheme } from '@/hooks/use-app-theme';
 import { useAuth } from '@/hooks/use-auth';
 import {
   getProfileAvatarErrorMessage,
@@ -42,6 +43,7 @@ type AccountEditMode = 'email' | 'password';
 const accountActions: SettingsAction[] = [
   { id: 'password', label: '비밀번호 변경', icon: 'lock.fill' },
   { id: 'email', label: '이메일 변경', icon: 'envelope.fill' },
+  { id: 'privacy', label: '공개 범위', icon: 'eye.fill' },
 ];
 
 const friendActions: SettingsAction[] = [
@@ -57,8 +59,7 @@ const logoutActions: SettingsAction[] = [
   { id: 'logout', label: '로그아웃', icon: 'rectangle.portrait.and.arrow.right' },
 ];
 
-const defaultProfileImage =
-  'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400';
+const defaultProfileImage = require('@/assets/images/default-profile.png');
 
 function isValidEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
@@ -140,9 +141,10 @@ function SettingsGroup({
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
+  const { warmBackground } = useAppTheme();
   const { signOut, updateEmail, updatePassword, user } = useAuth();
   const displayName = user?.email ?? 'SnapBag User';
-  const [profileImageUri, setProfileImageUri] = useState(defaultProfileImage);
+  const [profileImageUri, setProfileImageUri] = useState<string | number>(defaultProfileImage);
   const [isProfileImageSaving, setIsProfileImageSaving] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
   const [showContact, setShowContact] = useState(false);
@@ -207,6 +209,11 @@ export default function SettingsScreen() {
   const handleAccountAction = (action: SettingsAction) => {
     if (action.id === 'email' || action.id === 'password') {
       openAccountModal(action.id);
+      return;
+    }
+
+    if (action.id === 'privacy') {
+      router.push('/privacy-settings');
     }
   };
 
@@ -602,7 +609,7 @@ export default function SettingsScreen() {
         </View>
       </Modal>
       <ScrollView
-        style={styles.screen}
+        style={[styles.screen, { backgroundColor: warmBackground }]}
         contentContainerStyle={[
           styles.content,
           {
@@ -618,7 +625,7 @@ export default function SettingsScreen() {
         <View style={styles.profile}>
           <View style={styles.profileImageWrap}>
             <Image
-              source={{ uri: profileImageUri }}
+              source={typeof profileImageUri === 'string' ? { uri: profileImageUri } : profileImageUri}
               style={styles.profileImage}
               contentFit="cover"
             />

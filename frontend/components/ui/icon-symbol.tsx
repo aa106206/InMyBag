@@ -25,6 +25,7 @@ const MAPPING = {
   'pencil': 'edit',
   'camera.fill': 'photo-camera',
   'lock.fill': 'lock',
+  'eye.fill': 'visibility',
   'envelope.fill': 'email',
   'person.2.fill': 'group',
   'info.circle.fill': 'info',
@@ -34,6 +35,7 @@ const MAPPING = {
   'square.stack.3d.up.fill': 'layers',
   'trash.fill': 'delete',
   'chevron.left.forwardslash.chevron.right': 'code',
+  'chevron.left': 'chevron-left',
   'chevron.right': 'chevron-right',
 } as IconMapping;
 

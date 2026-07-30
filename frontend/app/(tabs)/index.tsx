@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PhotoLocationMap } from '@/components/photo-location-map';
 import { Brand } from '@/constants/theme';
+import { useAppTheme } from '@/hooks/use-app-theme';
 import { useAuth } from '@/hooks/use-auth';
 import { loadFriendBagItems, SavedBagItem } from '@/services/bag-items';
 import { recordBagView } from '@/services/bag-views';
@@ -297,7 +298,7 @@ function PhysicsPhoto({
         clearLongPressTimer();
         longPressTimerRef.current = setTimeout(() => {
           onOpenPhotoInfoRef.current(photo);
-        }, 1000);
+        }, 500);
         scheduleDragFallback();
         dragStartRef.current = { x: body.position.x, y: body.position.y };
         Body.setStatic(body, true);
@@ -520,6 +521,7 @@ function FriendBagPage({
   isLoading: boolean;
   onOpenPhotoInfo: (info: SelectedPhotoInfo) => void;
 }) {
+  const { warmBackground } = useAppTheme();
   const engineRef = useRef(Engine.create({ gravity: { x: 0, y: 0, scale: 0.002 } }));
   const wallsRef = useRef<Matter.Body[]>([]);
   const worldSizeRef = useRef({ width: 0, height: 0 });
@@ -673,41 +675,43 @@ function FriendBagPage({
   const friendHandle = getDisplayHandle(friend);
 
   return (
-    <View style={styles.bagPanel}>
-      <View style={styles.bagPanelHeader}>
-        <View style={styles.bagIdentity}>
-          <FriendAvatar friend={friend} size={34} style={styles.bagIdentityAvatar} />
-          <Text numberOfLines={1} ellipsizeMode="tail" style={styles.bagIdentityUser}>
-            @{friendHandle}
-          </Text>
+    <View style={styles.bagPanelShell}>
+      <View style={styles.bagPanel}>
+        <View style={styles.bagPanelHeader}>
+          <View style={styles.bagIdentity}>
+            <FriendAvatar friend={friend} size={34} style={styles.bagIdentityAvatar} />
+            <Text numberOfLines={1} ellipsizeMode="tail" style={styles.bagIdentityUser}>
+              @{friendHandle}
+            </Text>
+          </View>
         </View>
-      </View>
-      <View style={styles.bagPanelBody}>
-        <View style={styles.canvas} onLayout={onCanvasLayout}>
-          {isLoading ? (
-            <View style={styles.canvasCenter}>
-              <ActivityIndicator color={Brand.primary} size="large" />
-            </View>
-          ) : (
-            <>
-              {photos.length === 0 ? (
-                <View style={styles.canvasCenter}>
-                  <Text style={styles.emptyBagText}>
-                    @{friendHandle}님의 가방이 아직 비어 있어요.
-                  </Text>
-                </View>
-              ) : null}
-              {photos.map((photo) => (
-                <PhysicsPhoto
-                  key={photo.id}
-                  photo={photo}
-                  frame={frame}
-                  worldSize={worldSizeRef.current}
-                  onOpenPhotoInfo={(item) => onOpenPhotoInfo({ item, friendName: friendHandle })}
-                />
-              ))}
-            </>
-          )}
+        <View style={[styles.bagPanelBody, { backgroundColor: warmBackground }]}>
+          <View style={[styles.canvas, { backgroundColor: warmBackground }]} onLayout={onCanvasLayout}>
+            {isLoading ? (
+              <View style={styles.canvasCenter}>
+                <ActivityIndicator color={Brand.primary} size="large" />
+              </View>
+            ) : (
+              <>
+                {photos.length === 0 ? (
+                  <View style={styles.canvasCenter}>
+                    <Text style={styles.emptyBagText}>
+                      @{friendHandle}님의 가방이 아직 비어 있어요.
+                    </Text>
+                  </View>
+                ) : null}
+                {photos.map((photo) => (
+                  <PhysicsPhoto
+                    key={photo.id}
+                    photo={photo}
+                    frame={frame}
+                    worldSize={worldSizeRef.current}
+                    onOpenPhotoInfo={(item) => onOpenPhotoInfo({ item, friendName: friendHandle })}
+                  />
+                ))}
+              </>
+            )}
+          </View>
         </View>
       </View>
     </View>
@@ -716,6 +720,7 @@ function FriendBagPage({
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
+  const { warmBackground } = useAppTheme();
   const { user } = useAuth();
   const userId = user?.id ?? null;
   const bagItemsLoadIdRef = useRef(0);
@@ -828,7 +833,7 @@ export default function HomeScreen() {
   const selectedFriend = friends.find((friend) => friend.id === selectedFriendId) ?? null;
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: warmBackground }]}>
       <PhotoInfoModal
         selectedPhoto={selectedPhotoInfo}
         onClose={() => setSelectedPhotoInfo(null)}
@@ -1105,21 +1110,27 @@ const styles = StyleSheet.create({
     color: Brand.text,
     fontWeight: '900',
   },
-  bagPanel: {
+  bagPanelShell: {
     flex: 1,
     marginHorizontal: 14,
     marginTop: 10,
     marginBottom: 14,
+    borderRadius: 8,
+    backgroundColor: Brand.surfaceElevated,
+    boxShadow: '0 12px 24px rgba(17, 24, 39, 0.13)',
+    shadowColor: Brand.text,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.14,
+    shadowRadius: 18,
+    elevation: 8,
+  },
+  bagPanel: {
+    flex: 1,
     overflow: 'hidden',
     borderRadius: 8,
     borderWidth: 1,
     borderColor: Brand.borderSoft,
     backgroundColor: Brand.surfaceElevated,
-    shadowColor: Brand.text,
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.08,
-    shadowRadius: 18,
-    elevation: 7,
   },
   bagPanelHeader: {
     minHeight: 46,

@@ -63,16 +63,35 @@ export async function fetchExploreBagOwners(excludeUserId: string): Promise<Expl
   }
 
   // 3) 프로필 정보를 붙이고 랜덤 순서로 섞는다.
-  const { data: profiles, error: profilesError } = await supabase
+  // 비공개 계정은 친구 여부와 상관없이 둘러보기에서 빠진다.
+  let { data: profiles, error: profilesError } = await supabase
     .from("profiles")
-    .select("id, username, email, avatar_url")
+    .select("id, username, email, avatar_url, is_private")
     .in("id", ownerIds);
+
+  // is_private 마이그레이션을 아직 적용하지 않은 DB에서는 기존 컬럼만 다시 조회한다.
+  if (
+    profilesError
+    && (profilesError.code === "42703" || profilesError.message?.includes("is_private"))
+  ) {
+    const legacy = await supabase
+      .from("profiles")
+      .select("id, username, email, avatar_url")
+      .in("id", ownerIds);
+
+    profiles = (legacy.data ?? []).map((profile) => ({ ...profile, is_private: false }));
+    profilesError = legacy.error;
+  }
 
   if (profilesError) {
     throw profilesError;
   }
 
-  const owners = await Promise.all((profiles ?? []).map(async (profile) => ({
+  const publicProfiles = (profiles ?? []).filter(
+    (profile) => !((profile as { is_private?: boolean | null }).is_private ?? false),
+  );
+
+  const owners = await Promise.all(publicProfiles.map(async (profile) => ({
     id: profile.id as string,
     username:
       (profile.username as string | null) ?? (profile.email as string | null) ?? "알 수 없음",
