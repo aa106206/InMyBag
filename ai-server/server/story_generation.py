@@ -91,11 +91,13 @@ EMOTION_PROMPT_EN = {
 # 모든 SDXL 프롬프트 끝에 붙는 그림체 지시.
 # 그림체의 주축은 kidsketch(AI Hub 아동 연필화) LoRA다. 다만 원본 데이터가 흑백이므로,
 # '색연필로 꽉 칠한 색'을 강하게 요구해 연필 그림체를 유지하면서 컬러로 나오게 한다.
-# 무엇을 그렸는지 한눈에 알아볼 수 있도록 또렷한 선/단순한 형태/깔끔한 구도도 명시한다.
+# 너무 유아적인 결과를 피하도록 13~14세 학생의 관찰력과 묘사 수준을 명시한다.
 SDXL_STYLE_SUFFIX = (
-    "cute simple children's pencil drawing on white paper, "
-    "fully colored in with bright colored pencils, vivid colorful colors everywhere, "
-    "clear outlines, simple recognizable shapes, clean composition"
+    "hand-drawn diary illustration by a 13-to-14-year-old student on white paper, "
+    "age-appropriate observational detail and natural proportions, expressive but not childish, "
+    "a fully colored-in colored-pencil diary drawing, rich varied colors throughout the scene, "
+    "every major area including clothing objects and surroundings filled with visible layered color, "
+    "no empty uncolored interiors, confident clean outlines, recognizable shapes, thoughtful composition"
 )
 
 # 그림일기 일러스트 전용 네거티브 프롬프트.
@@ -104,7 +106,7 @@ SDXL_STYLE_SUFFIX = (
 # 색을 안 칠한 흑백/회색 결과만 강하게 차단한다.
 SDXL_STORY_NEGATIVE = (
     "black and white, monochrome, grayscale, uncolored, pale washed-out colors, "
-    "photo, photorealistic, 3d render, text, watermark, signature, blurry, "
+    "photo, photorealistic, 3d render, blurry, "
     "messy scribbles, chaotic lines, abstract, unrecognizable shapes, "
     "distorted, deformed, cluttered background"
 )
@@ -182,20 +184,22 @@ def _generate_story(payload: dict[str, Any]) -> dict[str, str]:
     emotion_guide = _emotion_guide(payload)
 
     prompt = f"""
-너는 초등학교 1~2학년 아이가 되어, 오늘 하루를 그림일기로 쓰는 거야.
+너는 오늘 하루를 솔직하고 자연스러운 그림일기로 쓰는 작가야.
 
 [출력 형식 — 가장 중요, 반드시 지켜]
-본문은 딱 3문장이야. 4문장부터는 실패야. 각 문장의 역할은 정해져 있어:
+본문은 반드시 딱 5문장이야. 4문장 이하 또는 6문장 이상이면 실패야. 각 문장의 역할은 정해져 있어:
 1번째 문장: '나는 오늘 ~했다.' (오늘 있었던 일)
-2번째 문장: 함께한 물건이 등장하는 있었던 일 하나. ('~먹었다', '~썼다', '~들었다')
-3번째 문장: 솔직한 기분 한 마디. ('참 재미있었다.', '기분 좋은 하루였다.', '조금 속상했다.')
+2번째 문장: 그때의 장소나 상황을 구체적으로 설명한다.
+3번째 문장: 함께한 물건을 사용하며 있었던 일을 쓴다. ('~먹었다', '~썼다', '~들었다')
+4번째 문장: 그중 기억에 남는 행동이나 순간을 하나 더 쓴다.
+5번째 문장: 오늘의 기분을 솔직하게 마무리한다. ('참 재미있었다.', '기분 좋은 하루였다.', '조금 속상했다.')
 
 [좋은 예시 — 이런 글을 써야 해]
 제목: 동아리방에서 공부
-본문: 나는 오늘 동아리방에서 조용히 공부했다. 중간중간 맛있는 간식과 음료수를 먹었다. 기분 좋은 하루였다.
+본문: 나는 오늘 동아리방에서 친구들과 공부했다. 창가 자리에 앉아 밀린 과제를 하나씩 정리했다. 중간중간 텀블러의 음료수를 마시며 노트에 중요한 내용을 적었다. 어려운 문제를 친구와 함께 풀었을 때 가장 기억에 남았다. 뿌듯하고 기분 좋은 하루였다.
 
 제목: 비 오는 날
-본문: 나는 오늘 우산을 쓰고 학교에 갔다. 새로 산 파란 우산 덕분에 비를 하나도 안 맞았다. 참 다행이었다.
+본문: 나는 오늘 비가 많이 오는 길을 걸어 학교에 갔다. 골목마다 물웅덩이가 생겨 평소보다 천천히 걸었다. 새로 산 파란 우산을 쓰고 운동화가 젖지 않게 조심했다. 교실에 도착해서 창밖의 빗소리를 잠깐 들었다. 비를 거의 맞지 않아 참 다행이었다.
 
 [나쁜 예시 — 이런 문장이 하나라도 있으면 실패야]
 - '따스한 햇살이 창문으로 스며들어 마음까지 포근해지는 기분이었어.' (어른스러운 꾸밈말, '~했어' 말투)
@@ -217,13 +221,24 @@ def _generate_story(payload: dict[str, Any]) -> dict[str, str]:
 {object_context}
 
 [작성 규칙]
-- 위 '함께한 물건'을 하나도 빠뜨리지 말고 2번째 문장(필요하면 1번째 문장에도)에 자연스럽게 넣어.
+- 위 '함께한 물건'을 하나도 빠뜨리지 말고 3~4번째 문장(필요하면 다른 문장에도)에 자연스럽게 넣어.
 - 문장 끝은 전부 '~했다', '~갔다', '~였다'로 끝내. '~했어', '~했지', '~단다', '~했어요'는 전부 금지야.
 - 비유, 꾸밈말, 여운 금지. 눈에 보이는 사실과 솔직한 기분만 써.
-- 오늘의 기분이 3번째 문장의 감정으로 드러나게 해.
+- 오늘의 기분이 5번째 문장의 감정으로 드러나게 해.
 - 제목은 12자 이내로 아이답게 단순하게. (예: '동아리방에서 공부', '비 오는 날')
 - 폭력적이거나 무서운 내용, 실제 브랜드 이름은 피해.
 - JSON 외의 설명은 출력하지 마.
+
+[SDXL 이미지 프롬프트 작성 규칙]
+- 위에서 완성한 한국어 5문장 일기 본문을 먼저 확정한 다음, 그 본문에 실제로 나온 한 장면을 영어 imagePrompt로 작성해.
+- imagePrompt는 영어만 사용하고 50단어 이하의 한 문장 조각으로 작성해.
+- 반드시 "a hand-drawn diary illustration by a 13-to-14-year-old student of"로 시작해.
+- 장소 하나와 13~14세 또래 주인공 한 명이 일기 속 행동을 하는 장면으로 구성해.
+- 함께한 물건은 주인공이 사용하거나 곁에 둔 모습으로 포함하되, 4개가 넘으면 일기와 가장 잘 맞는 4개만 골라.
+- 자연스러운 비율, 자신감 있는 선, 적당한 관찰 묘사를 사용하고 유치원생이나 저학년처럼 지나치게 유아적이거나 귀엽게 표현하지 마.
+- imagePrompt에 "a fully colored-in colored-pencil diary drawing with rich varied colors throughout the entire scene"이라는 표현을 포함해.
+- 인물의 옷, 주요 사물, 주변 환경을 선화로 비워 두지 말고 여러 색의 색연필로 충분히 채색한 장면을 묘사해.
+- imagePrompt는 반드시 방금 작성한 한국어 일기와 같은 장면이어야 하며, 일기에 없는 사건을 새로 만들면 안 돼.
 """.strip()
 
     body = {
@@ -238,8 +253,9 @@ def _generate_story(payload: dict[str, Any]) -> dict[str, str]:
                 "properties": {
                     "title": {"type": "STRING"},
                     "body": {"type": "STRING"},
+                    "imagePrompt": {"type": "STRING"},
                 },
-                "required": ["title", "body"],
+                "required": ["title", "body", "imagePrompt"],
             },
         },
     }
@@ -251,10 +267,11 @@ def _generate_story(payload: dict[str, Any]) -> dict[str, str]:
     story = _json_from_text(text)
     title = str(story.get("title") or "").strip()
     story_body = str(story.get("body") or "").strip()
+    image_prompt = str(story.get("imagePrompt") or "").strip()
     if not title or not story_body:
         raise RuntimeError("Gemini returned an empty story title or body.")
 
-    return {"title": title, "body": story_body}
+    return {"title": title, "body": story_body, "imagePrompt": image_prompt}
 
 
 # ---------------------------------------------------------------------------
@@ -262,18 +279,20 @@ def _generate_story(payload: dict[str, Any]) -> dict[str, str]:
 #
 # 두 LoRA 모두 영어 캡션(트리거 워드 kidsketch / kidodrawing)으로 학습했으므로,
 # 한국어 이야기를 그대로 보내면 장면을 이해하지 못한다.
-# 그래서 이미 사용 중인 Gemini 텍스트 모델로 이야기를 짧은 영어 장면 묘사로
-# 요약해 SDXL 프롬프트로 쓰고, 이 요약마저 실패하면 감정 기반 기본 프롬프트로
-# 대체해 일러스트 생성이 끊기지 않게 한다.
+# 그래서 한국어 일기를 만드는 한 번의 Gemini 응답에서 짧은 영어 장면 묘사도
+# 함께 받아 SDXL 프롬프트로 쓴다. 영어 프롬프트가 비정상이면 감정 기반 기본
+# 프롬프트로 대체해 일러스트 생성이 끊기지 않게 한다.
 # (트리거 워드는 sdxl_server.py 가 자동으로 앞에 붙인다.)
 # ---------------------------------------------------------------------------
 
 def _fallback_sdxl_prompt(payload: dict[str, Any]) -> str:
-    """Gemini 요약이 실패했을 때 쓰는 안전한 기본 영어 프롬프트."""
+    """Gemini가 유효한 영어 프롬프트를 주지 않았을 때 쓰는 안전한 기본값."""
     mood = EMOTION_PROMPT_EN[_resolve_emotion(payload)]
     return (
-        f"a child's drawing of a {mood} moment of everyday life, "
-        "one child with their favorite belongings, simple shapes, colorful"
+        f"a hand-drawn diary illustration by a 13-to-14-year-old student of a {mood} "
+        "everyday moment, one young teenager with their belongings, natural proportions, "
+        "moderate detail, a fully colored-in colored-pencil diary drawing with rich varied "
+        "colors throughout the entire scene"
     )
 
 
@@ -284,73 +303,12 @@ def _sanitize_sdxl_prompt(prompt: str) -> str:
 
 
 def _build_sdxl_prompt(payload: dict[str, Any], story: dict[str, str]) -> str:
-    """Gemini로 이야기를 SDXL용 짧은 영어 장면 묘사로 요약한다. 실패 시 기본 프롬프트.
+    """첫 Gemini 응답에 포함된 영어 장면 프롬프트를 정리해 반환한다."""
+    image_prompt = _sanitize_sdxl_prompt(story.get("imagePrompt", ""))
+    if len(image_prompt) >= 20:
+        return image_prompt[:1500]
 
-    사용자가 앱에서 직접 고르고 쓴 세 가지(감정, 줄거리, 상상력)를 그대로 반영한다.
-    - 줄거리(dailyMoment): 장면의 1순위 재료. 이야기 본문보다 우선한다.
-    - 감정(emotion): 색감/날씨/표정으로 드러나게 한다.
-    - 상상력(creativity): 1이면 쓴 그대로의 일상, 9면 판타지 요소를 더한다.
-    """
-    objects = payload["objects"]
-    labels = [str(item.get("label") or "물건").strip() for item in objects]
-    daily_moment = str(payload.get("dailyMoment") or "").strip()
-    creativity = int(payload.get("creativity") or 5)
-    mood = EMOTION_PROMPT_EN[_resolve_emotion(payload)]
-
-    prompt = f"""
-You write short English prompts for a text-to-image model that draws in a child's colored-pencil-drawing style.
-
-Turn the user's day below into ONE drawable scene description in English.
-
-What the user wrote about today (the most important source — draw this moment):
-{daily_moment or '(nothing written - imagine one scene from the story and objects below)'}
-
-Story title: {story['title']}
-Story: {story['body']}
-Objects the user carried today (Korean names): {', '.join(labels) or '(none - draw only the child and the scene)'}
-Today's mood: {mood}
-Imagination level: {creativity} of 9 (1 = draw the day exactly as the user wrote it, a realistic everyday scene; 9 = add playful fantasy such as talking objects or magical places)
-
-Rules:
-- English only. 50 words or fewer. One sentence fragment, no line breaks.
-- Start with "a child's drawing of".
-- The scene MUST include exactly one child as the main character, doing what the diary describes.
-- Draw ONE clear moment: one place, the one child, and the carried objects.
-- Every carried object MUST appear in the scene as a simple drawn item the child is using or has nearby (e.g. 음료수 -> a drink bottle on the desk), translated into simple English.
-- If there are more than four objects, pick the four that fit the diary best so the scene stays clean.
-- Keep the scene simple and easy to recognize at a glance. Never crowded, cluttered, or abstract.
-- Name concrete colors for at least three things in the scene (e.g. yellow desk, blue bottle, green tree) so the drawing is fully colored, never black-and-white.
-- Let the mood show through colors, weather, and the child's facial expression.
-- Describe only visible things (place, objects, weather, the one child).
-- No letters, numbers, text, brand names, or quotation marks in the scene.
-""".strip()
-
-    body = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0.3,
-            "responseMimeType": "application/json",
-            "responseSchema": {
-                "type": "OBJECT",
-                "properties": {"prompt": {"type": "STRING"}},
-                "required": ["prompt"],
-            },
-        },
-    }
-
-    try:
-        response = requests.post(_model_url(STORY_MODEL), json=body, timeout=45)
-        response.raise_for_status()
-        parts = _response_parts(response.json())
-        text = "".join(str(part.get("text") or "") for part in parts)
-        summarized = _sanitize_sdxl_prompt(str(_json_from_text(text).get("prompt") or ""))
-        # 너무 짧으면 요약이 깨진 것이므로 기본 프롬프트로 대체한다.
-        if len(summarized) >= 20:
-            return summarized[:1500]
-        logger.warning("SDXL prompt summary too short (%r). Using fallback prompt.", summarized)
-    except Exception:
-        logger.exception("SDXL prompt summary via Gemini failed. Using fallback prompt.")
-
+    logger.warning("Gemini imagePrompt is too short (%r). Using fallback prompt.", image_prompt)
     return _fallback_sdxl_prompt(payload)
 
 
@@ -423,21 +381,27 @@ def _generate_illustration(
     image_prompt = f"""
 한 장의 세로형 그림일기에 넣을 가로형 4:3 일러스트를 그려줘.
 
-사용자가 직접 쓴 오늘 이야기 (장면의 1순위 재료):
-{daily_moment or '(없음 - 아래 이야기와 물건으로 장면을 상상해 줘)'}
+이야기 제목: {story['title']}
+Gemini가 완성한 일기 (장면의 최우선 기준):
+{story['body']}
+
+같은 일기에서 함께 생성한 영어 장면 프롬프트 (장면 해석 참고용):
+{story.get('imagePrompt') or '(없음)'}
+
+사용자가 직접 쓴 원래 줄거리 (배경 참고용이며, 완성된 일기와 충돌하면 일기를 우선):
+{daily_moment or '(없음)'}
 
 오늘의 기분: {emotion_guide}
-이야기 제목: {story['title']}
-이야기: {story['body']}
 오늘 함께한 물건: {', '.join(labels) or '(없음 - 물건 없이 주인공과 장면만 그려 줘)'}
 상상력: 9단계 중 {creativity}단계 (1이면 쓴 그대로의 일상 장면, 9면 물건이 말하고 세계가 변하는 판타지)
 
 스타일 가이드:
-- 어린아이가 연필로 그리고 색연필로 칠한 그림처럼 표현해. 선은 또렷하게, 형태는 단순하게.
-- 반드시 알록달록한 색연필 색으로 꽉 채워 칠해. 흑백이나 색을 안 칠한 선 그림은 절대 안 돼.
+- 반드시 완성된 일기 본문에 실제로 나온 장면 하나를 골라 충실하게 그려. 원래 줄거리에서 일기에 없는 새 장면을 만들지 마.
+- 13~14세 중학생이 관찰해서 그린 그림일기처럼 표현해. 자연스러운 비율, 자신감 있는 선, 적당한 묘사를 사용하고 유치원생이나 저학년 그림처럼 지나치게 유아적이거나 귀엽게 그리지 마.
+- 색연필로 충분히 채색하되 지나치게 원색적이지 않은 균형 잡힌 색을 사용해. 흑백이나 색을 안 칠한 선 그림은 절대 안 돼.
 - 무엇을 그렸는지 한눈에 알아볼 수 있어야 해. 어지러운 낙서나 추상적인 표현은 절대 쓰지 마.
-- 일기의 주인공인 어린이 한 명이 반드시 그림에 등장해서, 일기에 쓴 일을 하고 있어야 해.
-- 하나의 분명한 순간만 그려. 장소 하나, 주인공 어린이 한 명, 그리고 어울리는 물건 몇 개.
+- 일기의 주인공인 13~14세 또래 인물 한 명이 반드시 그림에 등장해서, 일기에 쓴 일을 하고 있어야 해.
+- 하나의 분명한 순간만 그려. 장소 하나, 주인공 한 명, 그리고 어울리는 물건 몇 개.
 - '오늘 함께한 물건'은 빠짐없이 장면 속 소품으로 그려 넣어. 주인공이 쓰고 있거나 곁에 둔 모습으로.
   (예: 음료수 → 책상 위의 음료수 병) 4개가 넘으면 일기와 가장 어울리는 4개만 골라.
 - 그려 넣은 물건은 참고 이미지의 대략적인 모양과 색을 유지해.

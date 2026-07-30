@@ -157,10 +157,6 @@ function StoryIllustration({ story }: { story: GeneratedStory }) {
     return (
       <View style={styles.illustration}>
         <Image source={{ uri: story.illustrationUrl }} style={styles.generatedIllustration} resizeMode="cover" />
-        <View style={styles.generatedIllustrationShade} />
-        <View style={styles.illustrationLabel}>
-          <Text style={styles.illustrationLabelText}>{"TODAY'S SNAP STORY"}</Text>
-        </View>
       </View>
     );
   }
@@ -186,9 +182,6 @@ function StoryIllustration({ story }: { story: GeneratedStory }) {
         </View>
       ))}
       <View style={styles.ground} />
-      <View style={styles.illustrationLabel}>
-        <Text style={styles.illustrationLabelText}>{"TODAY'S SNAP STORY"}</Text>
-      </View>
     </LinearGradient>
   );
 }
@@ -632,15 +625,12 @@ const styles = StyleSheet.create({
   // 고정 높이 + cover 조합이 그림 하단을 잘라내던 문제를 없앤다.
   illustration: { width: '100%', aspectRatio: 4 / 3, overflow: 'hidden' },
   generatedIllustration: { width: '100%', height: '100%' },
-  generatedIllustrationShade: { position: 'absolute', left: 0, right: 0, top: 0, height: 64, backgroundColor: 'rgba(56,43,66,0.08)' },
   ground: { position: 'absolute', left: -20, right: -20, bottom: -42, height: 105, borderRadius: 80, backgroundColor: '#B8CFAE' },
   sun: { position: 'absolute', width: 54, height: 54, borderRadius: 27, right: 27, top: 25, backgroundColor: '#FFE29A', opacity: 0.92 },
   cloudOne: { position: 'absolute', width: 78, height: 24, borderRadius: 18, left: 22, top: 34, backgroundColor: 'rgba(255,255,255,0.65)' },
   cloudTwo: { position: 'absolute', width: 55, height: 18, borderRadius: 15, right: 86, top: 77, backgroundColor: 'rgba(255,255,255,0.48)' },
   storyObject: { position: 'absolute', width: 88, height: 88, zIndex: 3 },
   storyObjectImage: { width: '100%', height: '100%' },
-  illustrationLabel: { position: 'absolute', left: 16, top: 15, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.7)' },
-  illustrationLabelText: { fontSize: 8, letterSpacing: 0, fontWeight: '900', color: '#6A5C79' },
   storyPaper: { padding: 22, backgroundColor: '#FFFEFA' },
   storyDate: { color: '#9A8290', fontSize: 11, fontWeight: '700' },
   storyTitle: { marginTop: 7, color: Brand.text, fontSize: 22, lineHeight: 30, fontWeight: '900', letterSpacing: 0 },
