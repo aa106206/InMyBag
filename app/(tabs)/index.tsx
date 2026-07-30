@@ -675,41 +675,43 @@ function FriendBagPage({
   const friendHandle = getDisplayHandle(friend);
 
   return (
-    <View style={styles.bagPanel}>
-      <View style={styles.bagPanelHeader}>
-        <View style={styles.bagIdentity}>
-          <FriendAvatar friend={friend} size={34} style={styles.bagIdentityAvatar} />
-          <Text numberOfLines={1} ellipsizeMode="tail" style={styles.bagIdentityUser}>
-            @{friendHandle}
-          </Text>
+    <View style={styles.bagPanelShell}>
+      <View style={styles.bagPanel}>
+        <View style={styles.bagPanelHeader}>
+          <View style={styles.bagIdentity}>
+            <FriendAvatar friend={friend} size={34} style={styles.bagIdentityAvatar} />
+            <Text numberOfLines={1} ellipsizeMode="tail" style={styles.bagIdentityUser}>
+              @{friendHandle}
+            </Text>
+          </View>
         </View>
-      </View>
-      <View style={[styles.bagPanelBody, { backgroundColor: warmBackground }]}>
-        <View style={[styles.canvas, { backgroundColor: warmBackground }]} onLayout={onCanvasLayout}>
-          {isLoading ? (
-            <View style={styles.canvasCenter}>
-              <ActivityIndicator color={Brand.primary} size="large" />
-            </View>
-          ) : (
-            <>
-              {photos.length === 0 ? (
-                <View style={styles.canvasCenter}>
-                  <Text style={styles.emptyBagText}>
-                    @{friendHandle}님의 가방이 아직 비어 있어요.
-                  </Text>
-                </View>
-              ) : null}
-              {photos.map((photo) => (
-                <PhysicsPhoto
-                  key={photo.id}
-                  photo={photo}
-                  frame={frame}
-                  worldSize={worldSizeRef.current}
-                  onOpenPhotoInfo={(item) => onOpenPhotoInfo({ item, friendName: friendHandle })}
-                />
-              ))}
-            </>
-          )}
+        <View style={[styles.bagPanelBody, { backgroundColor: warmBackground }]}>
+          <View style={[styles.canvas, { backgroundColor: warmBackground }]} onLayout={onCanvasLayout}>
+            {isLoading ? (
+              <View style={styles.canvasCenter}>
+                <ActivityIndicator color={Brand.primary} size="large" />
+              </View>
+            ) : (
+              <>
+                {photos.length === 0 ? (
+                  <View style={styles.canvasCenter}>
+                    <Text style={styles.emptyBagText}>
+                      @{friendHandle}님의 가방이 아직 비어 있어요.
+                    </Text>
+                  </View>
+                ) : null}
+                {photos.map((photo) => (
+                  <PhysicsPhoto
+                    key={photo.id}
+                    photo={photo}
+                    frame={frame}
+                    worldSize={worldSizeRef.current}
+                    onOpenPhotoInfo={(item) => onOpenPhotoInfo({ item, friendName: friendHandle })}
+                  />
+                ))}
+              </>
+            )}
+          </View>
         </View>
       </View>
     </View>
@@ -1108,21 +1110,27 @@ const styles = StyleSheet.create({
     color: Brand.text,
     fontWeight: '900',
   },
-  bagPanel: {
+  bagPanelShell: {
     flex: 1,
     marginHorizontal: 14,
     marginTop: 10,
     marginBottom: 14,
+    borderRadius: 8,
+    backgroundColor: Brand.surfaceElevated,
+    boxShadow: '0 12px 24px rgba(17, 24, 39, 0.13)',
+    shadowColor: Brand.text,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.14,
+    shadowRadius: 18,
+    elevation: 8,
+  },
+  bagPanel: {
+    flex: 1,
     overflow: 'hidden',
     borderRadius: 8,
     borderWidth: 1,
     borderColor: Brand.borderSoft,
     backgroundColor: Brand.surfaceElevated,
-    shadowColor: Brand.text,
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.08,
-    shadowRadius: 18,
-    elevation: 7,
   },
   bagPanelHeader: {
     minHeight: 46,
