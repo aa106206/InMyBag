@@ -1492,12 +1492,10 @@ function StoryReaderModal({
   onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
-  const { height: windowHeight } = Dimensions.get("window");
   if (!story && !bagDayLabel) return null;
 
   const theme = story ? storyTheme(story) : null;
   const image = story ? story.illustrationUrl || story.imageUrls?.[0] : null;
-  const imageHeight = Math.min(300, Math.max(210, windowHeight * 0.28));
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
@@ -1517,7 +1515,7 @@ function StoryReaderModal({
               // 일러스트가 없어 물건 사진(비율 제각각)을 쓸 때는 contain으로 전체를 보여준다.
               <Image
                 source={{ uri: image }}
-                style={[styles.readerImage, { height: imageHeight }]}
+                style={styles.readerImage}
                 resizeMode={story?.illustrationUrl ? "cover" : "contain"}
               />
             ) : null}
@@ -3701,6 +3699,7 @@ const styles = StyleSheet.create({
   },
   readerImage: {
     width: "100%",
+    alignSelf: "stretch",
     // 고정 높이 + cover가 그림 하단을 잘라내던 문제를 4:3 비율 고정으로 해결.
     aspectRatio: 4 / 3,
     backgroundColor: Brand.secondary,

@@ -106,6 +106,7 @@ SDXL_STYLE_SUFFIX = (
 # 색을 안 칠한 흑백/회색 결과만 강하게 차단한다.
 SDXL_STORY_NEGATIVE = (
     "black and white, monochrome, grayscale, uncolored, pale washed-out colors, "
+    "text, letters, words, writing, handwriting, typography, captions, labels, signage, "
     "photo, photorealistic, 3d render, blurry, "
     "messy scribbles, chaotic lines, abstract, unrecognizable shapes, "
     "distorted, deformed, cluttered background"
@@ -172,7 +173,53 @@ def _object_context(objects: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def _generate_story(payload: dict[str, Any]) -> dict[str, str]:
+def _normalize_image_object_name(value: str) -> str:
+    """브랜드명을 SDXL이 이해하기 쉬운 일반 영어 사물명으로 정리한다."""
+    normalized = value.strip()
+    replacements = (
+        (r"맥북(?:\s*(?:프로|에어))?", "laptop"),
+        (r"\bmac\s*book(?:\s*(?:pro|air))?\b", "laptop"),
+        (r"아이폰", "smartphone"),
+        (r"\biphone\b", "smartphone"),
+        (r"에어팟", "wireless earbuds"),
+        (r"\bairpods?\b", "wireless earbuds"),
+        (r"아이패드", "tablet"),
+        (r"\bipad\b", "tablet"),
+    )
+    for pattern, replacement in replacements:
+        normalized = re.sub(pattern, replacement, normalized, flags=re.IGNORECASE)
+    return _sanitize_sdxl_prompt(normalized)
+
+
+def _normalize_image_objects(values: Any) -> list[str]:
+    if not isinstance(values, list):
+        return []
+
+    normalized = []
+    for value in values:
+        object_name = _normalize_image_object_name(str(value))
+        if object_name:
+            normalized.append(object_name)
+    return normalized
+
+
+def _resolve_image_objects(objects: list[dict[str, Any]], values: Any) -> list[str]:
+    """Gemini 번역을 쓰되 코드에 등록된 브랜드명은 일반 사물명으로 확정한다."""
+    generated = _normalize_image_objects(values)
+    resolved = []
+
+    for index, item in enumerate(objects):
+        raw_label = str(item.get("label") or "").strip()
+        code_normalized = _normalize_image_object_name(raw_label)
+        if code_normalized:
+            resolved.append(code_normalized)
+        elif index < len(generated):
+            resolved.append(generated[index])
+
+    return resolved or generated
+
+
+def _generate_story(payload: dict[str, Any]) -> dict[str, Any]:
     objects = payload["objects"]
     daily_moment = str(payload.get("dailyMoment") or "").strip()
     creativity = int(payload.get("creativity") or 5)
@@ -234,7 +281,10 @@ def _generate_story(payload: dict[str, Any]) -> dict[str, str]:
 - imagePrompt는 영어만 사용하고 50단어 이하의 한 문장 조각으로 작성해.
 - 반드시 "a hand-drawn diary illustration by a 13-to-14-year-old student of"로 시작해.
 - 장소 하나와 13~14세 또래 주인공 한 명이 일기 속 행동을 하는 장면으로 구성해.
-- 함께한 물건은 주인공이 사용하거나 곁에 둔 모습으로 포함하되, 4개가 넘으면 일기와 가장 잘 맞는 4개만 골라.
+- imageObjects에는 위 '함께한 물건'을 같은 개수와 순서로, 브랜드가 없는 단순한 영어 사물명으로 번역해 배열로 반환해.
+  예: 맥북/MacBook → laptop, 아이폰/iPhone → smartphone, 에어팟/AirPods → wireless earbuds, 아이패드/iPad → tablet.
+- imagePrompt에는 imageObjects의 모든 사물명을 하나도 빠뜨리지 말고 명시해. 각 물건은 주인공이 사용하거나 곁에 둔 모습으로 장면에서 명확하게 보여야 해.
+- 물건이 많아도 임의로 생략하거나 합치거나 다른 물건으로 바꾸면 안 돼.
 - 자연스러운 비율, 자신감 있는 선, 적당한 관찰 묘사를 사용하고 유치원생이나 저학년처럼 지나치게 유아적이거나 귀엽게 표현하지 마.
 - imagePrompt에 "a fully colored-in colored-pencil diary drawing with rich varied colors throughout the entire scene"이라는 표현을 포함해.
 - 인물의 옷, 주요 사물, 주변 환경을 선화로 비워 두지 말고 여러 색의 색연필로 충분히 채색한 장면을 묘사해.
@@ -254,8 +304,12 @@ def _generate_story(payload: dict[str, Any]) -> dict[str, str]:
                     "title": {"type": "STRING"},
                     "body": {"type": "STRING"},
                     "imagePrompt": {"type": "STRING"},
+                    "imageObjects": {
+                        "type": "ARRAY",
+                        "items": {"type": "STRING"},
+                    },
                 },
-                "required": ["title", "body", "imagePrompt"],
+                "required": ["title", "body", "imagePrompt", "imageObjects"],
             },
         },
     }
@@ -268,10 +322,16 @@ def _generate_story(payload: dict[str, Any]) -> dict[str, str]:
     title = str(story.get("title") or "").strip()
     story_body = str(story.get("body") or "").strip()
     image_prompt = str(story.get("imagePrompt") or "").strip()
+    image_objects = _resolve_image_objects(objects, story.get("imageObjects"))
     if not title or not story_body:
         raise RuntimeError("Gemini returned an empty story title or body.")
 
-    return {"title": title, "body": story_body, "imagePrompt": image_prompt}
+    return {
+        "title": title,
+        "body": story_body,
+        "imagePrompt": image_prompt,
+        "imageObjects": image_objects,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -302,17 +362,24 @@ def _sanitize_sdxl_prompt(prompt: str) -> str:
     return re.sub(r"\s+", " ", ascii_only).strip()
 
 
-def _build_sdxl_prompt(payload: dict[str, Any], story: dict[str, str]) -> str:
+def _build_sdxl_prompt(payload: dict[str, Any], story: dict[str, Any]) -> str:
     """첫 Gemini 응답에 포함된 영어 장면 프롬프트를 정리해 반환한다."""
     image_prompt = _sanitize_sdxl_prompt(story.get("imagePrompt", ""))
+    image_objects = _resolve_image_objects(payload.get("objects") or [], story.get("imageObjects"))
+    required_objects = ""
+    if image_objects:
+        required_objects = (
+            ", must clearly and visibly include every carried item without omission: "
+            + ", ".join(image_objects)
+        )
     if len(image_prompt) >= 20:
-        return image_prompt[:1500]
+        return f"{image_prompt}{required_objects}"[:1500]
 
     logger.warning("Gemini imagePrompt is too short (%r). Using fallback prompt.", image_prompt)
     return _fallback_sdxl_prompt(payload)
 
 
-def _generate_illustration_sdxl(payload: dict[str, Any], story: dict[str, str]) -> str:
+def _generate_illustration_sdxl(payload: dict[str, Any], story: dict[str, Any]) -> str:
     """SDXL KIDO LoRA 서버로 일러스트를 생성해 PNG data URI를 반환한다."""
     scene = _build_sdxl_prompt(payload, story)
     # 장면 묘사 + 그림체 지시를 합쳐 최종 프롬프트를 만든다.
@@ -371,13 +438,14 @@ def _load_reference_image(url: str) -> tuple[str, str] | None:
 
 
 def _generate_illustration(
-    payload: dict[str, Any], story: dict[str, str]
+    payload: dict[str, Any], story: dict[str, Any]
 ) -> tuple[str, str]:
     objects = payload["objects"]
     creativity = int(payload.get("creativity") or 5)
     daily_moment = str(payload.get("dailyMoment") or "").strip()
     emotion_guide = _emotion_guide(payload)
     labels = [str(item.get("label") or "물건").strip() for item in objects]
+    image_objects = _resolve_image_objects(objects, story.get("imageObjects"))
     image_prompt = f"""
 한 장의 세로형 그림일기에 넣을 가로형 4:3 일러스트를 그려줘.
 
@@ -393,6 +461,7 @@ Gemini가 완성한 일기 (장면의 최우선 기준):
 
 오늘의 기분: {emotion_guide}
 오늘 함께한 물건: {', '.join(labels) or '(없음 - 물건 없이 주인공과 장면만 그려 줘)'}
+이미지에 반드시 명확하게 보여야 하는 일반 영어 사물명: {', '.join(image_objects) or '(없음)'}
 상상력: 9단계 중 {creativity}단계 (1이면 쓴 그대로의 일상 장면, 9면 물건이 말하고 세계가 변하는 판타지)
 
 스타일 가이드:
@@ -403,7 +472,7 @@ Gemini가 완성한 일기 (장면의 최우선 기준):
 - 일기의 주인공인 13~14세 또래 인물 한 명이 반드시 그림에 등장해서, 일기에 쓴 일을 하고 있어야 해.
 - 하나의 분명한 순간만 그려. 장소 하나, 주인공 한 명, 그리고 어울리는 물건 몇 개.
 - '오늘 함께한 물건'은 빠짐없이 장면 속 소품으로 그려 넣어. 주인공이 쓰고 있거나 곁에 둔 모습으로.
-  (예: 음료수 → 책상 위의 음료수 병) 4개가 넘으면 일기와 가장 어울리는 4개만 골라.
+- 위 '이미지에 반드시 명확하게 보여야 하는 일반 영어 사물명'을 하나도 생략하거나 합치거나 다른 물건으로 바꾸지 마.
 - 그려 넣은 물건은 참고 이미지의 대략적인 모양과 색을 유지해.
 - 물건을 단순히 줄지어 나열하지 말고, 주인공이 쓰거나 곁에 둔 것처럼 배치해.
 - 오늘의 기분이 색감과 날씨, 인물의 표정에서 드러나게 해.
